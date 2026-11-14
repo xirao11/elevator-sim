@@ -1,0 +1,16 @@
+[project]
+name = "elevator-sim"
+version = "0.1.0"
+description = "Discrete-time simulation of a destination-dispatch elevator system"
+requires-python = ">=3.9"
+# The simulator itself needs nothing beyond Python.
+dependencies = []
+
+[dependency-groups]
+# Tools used only while developing. Not needed to run the simulator.
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Lets the tests do `import elevator_sim` without installing anything.
+pythonpath = ["."]

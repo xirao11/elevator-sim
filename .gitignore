@@ -1,0 +1,7 @@
+# Files git should never track.
+.venv/
+__pycache__/
+.pytest_cache/
+.DS_Store
+# Output of simulation runs
+out/
