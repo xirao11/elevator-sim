@@ -10,5 +10,6 @@ class Config:
     num_cars: int = 1  # how many cars the building has
     num_floors: int = 51  # floors are numbered 1 to num_floors; 51 fits the assignment's sample
     capacity: int = 10  # the most riders one car may hold at one time
+    stop_time: int = 0  # extra ticks a car stays at a floor when anyone steps in or out; 0 means a stop is free
     start_floor: int = 1  # where every car waits at tick 0
     max_ticks: int = 10_000  # safety stop: the run fails loudly if anyone is still undelivered this long after the last request

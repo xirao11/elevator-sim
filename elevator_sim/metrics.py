@@ -1,5 +1,7 @@
 """Turns the facts of a finished run into numbers. It computes only; printing is the command line's job."""
 
+import math
+
 from elevator_sim.passenger import Passenger
 
 
@@ -19,6 +21,18 @@ def summarize(passengers: list[Passenger]) -> dict[str, dict[str, float]]:
     for measure, values in times.items():
         summary[measure] = {"min": min(values), "max": max(values), "average": sum(values) / len(values)}
     return summary
+
+
+def percentile(values: list[float], percent: int) -> float:
+    """The value that `percent` % of the values are at or below. percentile(waits, 90) is the p90 wait.
+
+    The answer is always one of the values themselves (the "nearest rank" method): sort them and
+    count up `percent` % of the way. numpy's default interpolates between two neighbours instead,
+    so its answer can differ slightly.
+    """
+    ordered = sorted(values)
+    rank = math.ceil(percent * len(ordered) / 100)  # how many values to count, starting from the smallest
+    return ordered[max(rank, 1) - 1]  # a list counts from 0, so the rank-th value sits at rank - 1
 
 
 def longest_wait(passengers: list[Passenger]) -> Passenger:

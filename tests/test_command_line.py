@@ -49,6 +49,17 @@ def test_the_statistics_are_printed_after_the_run(tmp_path, capsys):
     assert "Rule check passed" in printed  # every run is checked against the five rules
 
 
+def test_a_stop_time_of_1_adds_one_tick_for_every_stop_on_the_way(tmp_path):
+    main([SAMPLE, "--stop-time", "1", "--out", str(tmp_path)])  # one car, the default
+
+    # Traced by hand before the run. With free stops the arrivals are 50, 36 and 100.
+    assert read_csv(tmp_path / "passengers.csv")[1:] == [
+        ["0", "passenger1", "1", "51", "0", "0", "52", "0", "52", "52"],  # 50 floors, the stop at 1 and the stop at 37
+        ["0", "passenger2", "1", "37", "0", "0", "37", "0", "37", "37"],  # 36 floors and the stop at 1
+        ["10", "passenger3", "20", "1", "0", "84", "104", "74", "20", "94"],  # the car is 3 stops late; then 19 floors and one stop
+    ]
+
+
 def test_a_file_with_a_bad_row_stops_and_writes_nothing(tmp_path, capsys):
     bad_file = tmp_path / "bad.csv"
     bad_file.write_text("time,id,source,dest\n0,a,1,5\n0,b,5,5\n")  # \n is a line break; line 3 goes nowhere
@@ -61,8 +72,8 @@ def test_a_file_with_a_bad_row_stops_and_writes_nothing(tmp_path, capsys):
     assert not out.exists()  # the good row on line 2 was not simulated either
 
 
-# parametrize runs the same test once per line of values: three tests written once.
-@pytest.mark.parametrize("flag, value", [("--cars", "0"), ("--floors", "1"), ("--capacity", "0")])
+# parametrize runs the same test once per line of values: four tests written once.
+@pytest.mark.parametrize("flag, value", [("--cars", "0"), ("--floors", "1"), ("--capacity", "0"), ("--stop-time", "-1")])
 def test_a_building_that_cannot_exist_is_refused_before_anything_runs(tmp_path, flag, value):
     out = tmp_path / "out"
 

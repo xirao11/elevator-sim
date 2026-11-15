@@ -18,7 +18,7 @@ def run(
     at the start of that tick, in car order.
     """
     cars = [
-        Car(number=number, capacity=config.capacity, floor=config.start_floor)
+        Car(number=number, capacity=config.capacity, stop_time=config.stop_time, floor=config.start_floor)
         for number in range(config.num_cars)
     ]
     # The safety stop counts from the last request, so a valid file never trips it, however late it starts.

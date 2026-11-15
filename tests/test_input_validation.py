@@ -1,8 +1,8 @@
 """Tests for the gate between a request file and the simulation."""
 
 from elevator_sim.config import Config
+from elevator_sim.input_validation import check_request, read_requests
 from elevator_sim.passenger import Passenger
-from elevator_sim.validation import check_request, read_requests
 
 HEADER = "time,id,source,dest"
 TEN_FLOORS = Config(num_floors=10)

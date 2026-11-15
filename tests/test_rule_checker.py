@@ -2,7 +2,7 @@
 
 from elevator_sim.config import Config
 from elevator_sim.passenger import Passenger
-from elevator_sim.rules import check_run
+from elevator_sim.rule_checker import check_run
 from elevator_sim.schedulers import nearest_car
 from elevator_sim.simulation import run
 

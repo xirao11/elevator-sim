@@ -144,3 +144,27 @@ def test_safety_stop_still_fails_loudly_when_a_run_takes_too_long():
 
     with pytest.raises(RuntimeError):
         run([passenger], config=Config(max_ticks=1))
+
+
+def test_with_a_stop_time_the_stop_where_a_passenger_steps_in_costs_ticks():
+    # One passenger, three floors up, and every stop costs 2 ticks.
+    passenger = Passenger(id="p1", source=1, dest=4, request_time=0)
+
+    log = run([passenger], config=Config(stop_time=2))
+
+    assert passenger.board_time == 0  # stepping in is still immediate, so the wait is 0
+    assert log == [[1], [1], [1], [2], [3], [4]]  # two ticks at the stop, then three floors
+    assert passenger.arrive_time == 5  # 2 + 3; with free stops it is 3
+
+
+def test_with_a_stop_time_a_pick_up_on_the_way_delays_the_rider_already_inside():
+    # One car, and every stop costs 1 tick. Ann rides from floor 1 to 5; Ben steps in on floor 3 on the way.
+    ann = Passenger(id="Ann", source=1, dest=5, request_time=0)
+    ben = Passenger(id="Ben", source=3, dest=5, request_time=0)
+
+    log = run([ann, ben], config=Config(stop_time=1))
+
+    assert log == [[1], [1], [2], [3], [3], [4], [5]]  # one tick at floor 1 for Ann, one at floor 3 for Ben
+    assert ben.board_time == 3  # 2 floors, plus the stop where Ann stepped in
+    assert ann.arrive_time == 6  # 4 floors, plus her own stop, plus Ben's stop; with free stops it is 4
+    assert ben.arrive_time == 6

@@ -1,6 +1,8 @@
 """One car. A "car" is one elevator."""
 
+import copy
 from dataclasses import dataclass, field
+from typing import Optional
 
 from elevator_sim.passenger import DOWN, UP, Passenger
 
@@ -21,6 +23,8 @@ class Car:
     waiting: list[Passenger] = field(default_factory=list)  # given to this car, not inside yet
     riders: list[Passenger] = field(default_factory=list)  # inside the car
     assigned_count: int = 0  # how many passengers this car has been given since the start
+    stop_time: int = 0  # extra ticks the car stays at a floor when anyone steps in or out; 0 means a stop is free
+    stop_ticks_left: int = 0  # how many of those ticks are still to come at the stop it is making now
 
     @property
     def is_full(self) -> bool:
@@ -40,14 +44,50 @@ class Car:
         self._load(tick)
 
     def move(self) -> None:
-        """Step 7 of a tick: travel one floor in the chosen direction. An idle car stays."""
+        """Step 7 of a tick: travel one floor in the chosen direction. An idle car stays, and so does a car in the middle of a stop."""
+        if self.stop_ticks_left > 0:
+            self.stop_ticks_left -= 1  # this tick is spent at the stop
+            return  # leave the method here: the car does not move
         self.floor += self.direction
 
+    def estimate_arrivals(self, tick: int, newcomer: Optional[Passenger] = None) -> dict[str, int]:
+        """An estimate: the tick at which each passenger this car has been given would arrive.
+
+        It counts only people who have already asked: those waiting for this car, those riding in it,
+        and `newcomer` if one is passed ("what if this car got them?"). It knows nothing about requests
+        that have not been made yet, so the estimate is exact only if nobody else asks for this car.
+
+        `tick` is now. The work is done on a copy that follows the same rules as the real car, so the
+        real car and its passengers are not touched. What comes back looks like {"p7": 31, "p9": 44}.
+        """
+        car = copy.deepcopy(self)  # a full copy: the car, its two lists and every passenger in them
+        if newcomer is not None:
+            car.assign(copy.deepcopy(newcomer))
+        everyone = car.waiting + car.riders  # a list of its own, so it still names them after they have left the car
+        while True:
+            car.serve_floor(tick)  # the same steps the real car takes in every tick
+            if len(car.waiting) == 0 and len(car.riders) == 0:
+                break  # everyone has arrived
+            car.move()
+            tick += 1
+        return {passenger.id: passenger.arrive_time for passenger in everyone}
+
+    def _hold(self) -> None:
+        """Someone stepped in or out, so the car has made a stop: it stays here `stop_time` more ticks.
+
+        A method cannot make time pass; only the simulation's loop does that. So this writes down how
+        many ticks the car still has to stay, and `move` uses them up one tick at a time. It sets the
+        number and does not add to it: five people at one floor are still one stop.
+        """
+        self.stop_ticks_left = self.stop_time
+
     def _unload(self, tick: int) -> None:
+        """Riders whose floor this is step out."""
         staying = []
         for passenger in self.riders:
             if passenger.dest == self.floor:
                 passenger.arrive_time = tick
+                self._hold()
             else:
                 staying.append(passenger)
         self.riders = staying
@@ -64,6 +104,7 @@ class Car:
         return IDLE
 
     def _load(self, tick: int) -> None:
+        """People waiting here who are going the car's way step in while there is room."""
         still_waiting = []
         # `waiting` is in the order people were given to the car, so whoever asked first boards first.
         for passenger in self.waiting:
@@ -71,6 +112,7 @@ class Car:
             if here_and_my_way and not self.is_full:  # the door rule: nobody boards a full car
                 passenger.board_time = tick
                 self.riders.append(passenger)
+                self._hold()
             else:
                 still_waiting.append(passenger)
         self.waiting = still_waiting

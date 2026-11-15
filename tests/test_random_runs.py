@@ -4,9 +4,10 @@ import random
 
 import pytest
 
+from elevator_sim.car import Car
 from elevator_sim.config import Config
 from elevator_sim.passenger import Passenger
-from elevator_sim.rules import check_run
+from elevator_sim.rule_checker import check_run
 from elevator_sim.schedulers import SCHEDULERS
 from elevator_sim.simulation import run
 
@@ -23,6 +24,7 @@ def random_building(seed: int) -> tuple[Config, list[Passenger]]:
         num_cars=rng.randint(1, 10),  # the assignment's example range. This randint includes both ends
         num_floors=rng.randint(2, 50),
         capacity=rng.randint(1, 10),
+        stop_time=seed % 3,  # the remainder after dividing by 3: stops cost 0, 1 or 2 ticks, in turn
     )
     passengers = []
     for number in range(rng.randint(1, 20 * config.num_cars)):  # up to 20 people per car keeps every car busy
@@ -74,3 +76,49 @@ def test_a_later_request_cannot_change_anything_earlier(name):
         for before, after in zip(passengers, again):  # zip pairs each passenger with their twin in the second run
             if before.request_time < halfway:
                 assert after.car_number == before.car_number, f"seed {seed}: {before.id} was given a different car"
+
+
+def test_a_cars_estimate_comes_true_when_nobody_else_asks():
+    """A crowd asks one car at tick 0 and nobody asks afterwards, so the car's estimate must match the real run exactly."""
+    for seed in range(NUM_BUILDINGS):
+        rng = random.Random(seed)
+        config = Config(num_cars=1, num_floors=rng.randint(2, 50), capacity=rng.randint(1, 10), stop_time=seed % 3)
+        passengers = []
+        for number in range(rng.randint(1, 20)):
+            source, dest = rng.sample(range(1, config.num_floors + 1), 2)
+            passengers.append(Passenger(id=f"p{number}", source=source, dest=dest, request_time=0))
+
+        # The car as it stands at tick 0: everyone has been given to it, and it has not moved yet.
+        car = Car(number=0, capacity=config.capacity, stop_time=config.stop_time, floor=config.start_floor)
+        for passenger in passengers:
+            car.assign(passenger)
+        estimate = car.estimate_arrivals(tick=0)
+
+        run(passengers, config)  # the real run: one car and the same passengers
+
+        assert estimate == {p.id: p.arrive_time for p in passengers}, f"seed {seed}, {config}"
+
+
+@pytest.mark.parametrize("name", list(SCHEDULERS))
+def test_the_estimate_made_for_the_last_passenger_of_a_run_comes_true(name):
+    """Mid-run, with several cars: nobody asks after the last passenger, so the estimate made for them must be exact."""
+    for seed in range(NUM_BUILDINGS):
+        config, passengers = random_building(seed)
+        latest = max(p.request_time for p in passengers)
+        last = [p for p in passengers if p.request_time == latest][-1]  # the last one the simulation hands out
+        estimate = {}
+
+        # A scheduler wrapped in a little function of our own: it picks the car as usual, and for the
+        # last passenger it also keeps that car's estimate. A function written inside a test can use
+        # the test's own names (name, last, estimate).
+        def scheduler(passenger, cars):
+            car = SCHEDULERS[name](passenger, cars)
+            if passenger is last:
+                estimate.update(car.estimate_arrivals(passenger.request_time, newcomer=passenger))
+            return car
+
+        run(passengers, config, scheduler=scheduler)
+
+        assert last.id in estimate
+        actual = {p.id: p.arrive_time for p in passengers if p.id in estimate}  # the same people, as it really went
+        assert estimate == actual, f"seed {seed}, {config}"

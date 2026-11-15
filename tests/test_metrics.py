@@ -2,7 +2,7 @@
 
 import pytest
 
-from elevator_sim.metrics import longest_wait, summarize
+from elevator_sim.metrics import longest_wait, percentile, summarize
 from elevator_sim.passenger import Passenger
 
 
@@ -32,3 +32,12 @@ def test_longest_wait_names_the_passenger_and_a_tie_goes_to_the_first_in_the_fil
 
     tied = [finished("a", 1, 2, 0, 5, 6), finished("b", 1, 2, 0, 5, 6)]  # both wait 5
     assert longest_wait(tied).id == "a"
+
+
+def test_percentile_is_the_value_that_many_percent_are_at_or_below():
+    waits = [10, 1, 9, 2, 8, 3, 7, 4, 6, 5]  # the numbers 1 to 10, out of order
+
+    assert percentile(waits, 90) == 9  # nine of the ten values are 9 or less
+    assert percentile(waits, 50) == 5
+    assert percentile(waits, 100) == 10
+    assert percentile([7], 90) == 7  # with one value, every percentile is that value

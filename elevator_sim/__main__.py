@@ -1,6 +1,6 @@
 """The command line. Run it from the project folder:
 
-    python -m elevator_sim REQUEST_FILE [--cars N] [--floors N] [--capacity N] [--scheduler NAME] [--out FOLDER]
+    python -m elevator_sim REQUEST_FILE [--cars N] [--floors N] [--capacity N] [--stop-time N] [--scheduler NAME] [--out FOLDER]
 
 It reads a request file, runs the simulation and writes two files to the output folder:
 positions.csv (every car's floor at every tick) and passengers.csv (one row per passenger).
@@ -12,12 +12,12 @@ import sys
 from pathlib import Path
 
 from elevator_sim.config import Config
+from elevator_sim.input_validation import COLUMNS, read_requests
 from elevator_sim.metrics import longest_wait, summarize
 from elevator_sim.passenger import Passenger
-from elevator_sim.rules import check_run
+from elevator_sim.rule_checker import check_run
 from elevator_sim.schedulers import SCHEDULERS
 from elevator_sim.simulation import run
-from elevator_sim.validation import COLUMNS, read_requests
 
 DEFAULTS = Config()  # every default is read from config.py, so it is written in one place only
 
@@ -37,6 +37,8 @@ def main(argv=None) -> int:
     parser.add_argument("--cars", type=int, default=DEFAULTS.num_cars, help="number of cars")
     parser.add_argument("--floors", type=int, default=DEFAULTS.num_floors, help="floors are numbered 1 to N")
     parser.add_argument("--capacity", type=int, default=DEFAULTS.capacity, help="most riders one car may hold")
+    # A flag typed as --stop-time is read back as args.stop_time: argparse turns the dash into an underscore.
+    parser.add_argument("--stop-time", type=int, default=DEFAULTS.stop_time, help="extra ticks a car stays at a floor when anyone steps in or out")
     parser.add_argument("--scheduler", choices=list(SCHEDULERS), default="round_robin", help="the rule that picks a car")
     parser.add_argument("--out", default="out", help="folder for positions.csv and passengers.csv")
     args = parser.parse_args(argv)
@@ -49,11 +51,13 @@ def main(argv=None) -> int:
         parser.error("--floors must be at least 2 (with one floor, every trip goes nowhere)")
     if args.capacity < 1:
         parser.error("--capacity must be at least 1")
+    if args.stop_time < 0:
+        parser.error("--stop-time cannot be negative")
     request_file = Path(args.requests)
     if not request_file.is_file():
         parser.error(f"cannot find the request file {request_file}")
 
-    config = Config(num_cars=args.cars, num_floors=args.floors, capacity=args.capacity)
+    config = Config(num_cars=args.cars, num_floors=args.floors, capacity=args.capacity, stop_time=args.stop_time)
 
     # utf-8-sig also reads a file saved by Excel, which starts with an invisible marker.
     # newline="" is how the csv module asks for its files to be opened.
