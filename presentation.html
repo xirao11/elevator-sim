@@ -1237,21 +1237,28 @@ const EXAMPLE = {"floors":7,"trips":[["Pat",5,1,0],["Ann",3,7,1]],"runs":{"round
       if (on && focus) button.focus();
     });
   }
+  // Put the tab's name at the end of the address. The address is built from the page's own, not written as a bare
+  // "#watch": a viewer such as htmlpreview.github.io adds a <base> that points at GitHub, a bare "#watch" would then
+  // mean a GitHub address, and the browser refuses to put another site's address in this page's history. If it is
+  // refused anyway, the tab has already opened; only the address stays as it was.
+  function remember(id) {
+    try { history.replaceState(null, "", location.href.split("#")[0] + "#" + id); } catch (e) { /* keep the old address */ }
+  }
   buttons.forEach(function (button, k) {
-    button.addEventListener("click", function () { history.replaceState(null, "", "#" + button.dataset.panel); show(button.dataset.panel); });
+    button.addEventListener("click", function () { show(button.dataset.panel); remember(button.dataset.panel); });
     button.addEventListener("keydown", function (event) {
       const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
       if (step === 0) return;
       const next = buttons[(k + step + buttons.length) % buttons.length];
-      history.replaceState(null, "", "#" + next.dataset.panel);
       show(next.dataset.panel, true);
+      remember(next.dataset.panel);
     });
   });
   // A button inside a tab that leads on to another tab.
   Array.prototype.slice.call(document.querySelectorAll("[data-go]")).forEach(function (link) {
     link.addEventListener("click", function () {
-      history.replaceState(null, "", "#" + link.dataset.go);
       show(link.dataset.go);
+      remember(link.dataset.go);
       window.scrollTo(0, 0);
     });
   });
