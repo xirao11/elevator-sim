@@ -2,7 +2,7 @@
 
 A tick-by-tick simulation of a destination-dispatch elevator system. Each passenger gives their destination before boarding and is told at once which car to take. The number of cars, the number of floors and the car size are settings. The rule that picks a car, the *scheduler*, is swappable. Every run is checked against the rules before any result is shown.
 
-> **Presentation page:** [presentation.html](https://htmlpreview.github.io/?https://github.com/xirao11/elevator-sim/blob/main/presentation.html) shows the four schedulers on one example, the results as charts, the checks and the system design. After cloning, it opens with a double-click.
+> **Presentation page:** [presentation.html](https://htmlpreview.github.io/?https://github.com/xirao11/elevator-sim/blob/main/presentation.html) shows the four schedulers on one example, the results as charts, the checks and the system design.
 
 **The result:** I recommend `least_combined_time`, the best of the four schedulers I built. Before it gives a new passenger a car, it adds up what that choice costs in wait and travel time: the new passenger's own time, plus the time they add to the passengers already given to that car. It has the shortest average total time in every traffic pattern I tested, and the shortest longest wait.
 
@@ -20,16 +20,7 @@ uv run pytest                                               # 85 tests, about 50
 
 The first two commands run the same simulation and the same rule check. They differ only in where the passengers come from: a file you write, or traffic the program makes. The tests need [uv](https://docs.astral.sh/uv/), which downloads pytest.
 
-**Your own scenario: a request file.** One row per passenger. `data/sample_requests.csv` is the assignment's sample:
-
-```
-time,id,source,dest
-0,passenger1,1,51
-0,passenger2,1,37
-10,passenger3,20,1
-```
-
-Give the path of your own file in its place. Whatever the file, input validation checks every row first: the header, whole numbers, floors that exist in the building, and ids used once. If anything is wrong, every problem is listed with its line number and nothing runs. Otherwise the run prints its settings, the rule check and the times:
+**Your own scenario: a request file.** One row per passenger, under the header `time,id,source,dest`. `data/sample_requests.csv` is the assignment's sample; give the path of your own file in its place. Input validation checks every row first; if anything is wrong, every problem is listed with its line number and nothing runs. Otherwise the run prints its settings, the rule check and the times:
 
 ```
            min   max  average
@@ -38,7 +29,7 @@ travel      19    50     35.0
 total       36    50     41.3
 ```
 
-It also writes two files: `positions.csv`, every car's floor at every tick, and `passengers.csv`, each passenger's car and times. They go to `out/`, in a folder named after the request file: `out/sample_requests/` here. A copy of this run's two files is kept in the repo as `data/sample_output/`, to read without running anything. The settings are `--cars`, `--floors`, `--capacity`, `--stop-time`, `--scheduler` and `--out`; `--help` explains each.
+It also writes two files: `positions.csv`, every car's floor at every tick, and `passengers.csv`, each passenger's car and times. They go to a folder named after the request file, `out/sample_requests/` here; `data/sample_output/` is a copy kept in the repo, to read without running anything. The settings are `--cars`, `--floors`, `--capacity`, `--stop-time`, `--scheduler` and `--out`; `--help` explains each.
 
 **The predefined scenarios: morning, lunch and evening.** Here the program makes the passengers itself. A scenario is one traffic pattern of an office day: morning (85% go up from the lobby), lunch (mixed) and evening (85% go down to the lobby). For each pattern the command makes 20 random sets of 300 passengers, runs all four schedulers on every set, and prints their times side by side. The Results below come from it. It saves nothing: the same passengers are made again on every run. To run one of those sets with the first command, save it as a request file first:
 
@@ -82,9 +73,9 @@ The building has 4 cars, 20 floors and room for 8 in a car, and 300 passengers a
 
 Against `round_robin`, paired set by set, `least_combined_time` is shorter by 7.5 ± 0.3, 11.0 ± 0.1 and 12.5 ± 0.3 ticks (± standard error). What I take from the numbers:
 
-- **Distance is not time.** `nearest_car` loses to `round_robin` in the morning and the evening. It gives everyone at the lobby the same car, and that car fills up. The objective is time, and an estimate in ticks measures it directly, so both estimate schedulers beat both simple rules in every pattern.
+- **Distance is not time.** `nearest_car` loses to `round_robin` in the morning and the evening: it gives everyone at the lobby the same car, and that car fills up. An estimate in ticks measures the objective directly, so both estimate schedulers beat both simple rules in every pattern.
 - **Counting the other passengers helps the unluckiest one most.** The average is efficiency and the longest wait is fairness. `least_newcomer_time` lets a newcomer take the place of someone waiting further along; `least_combined_time` counts that as a long delay to that person.
-- **When every stop costs time, the order holds.** With `--stop-time 2` a car stays 2 more ticks whenever anyone steps in or out. `least_combined_time` then averages 70.8, 32.6 and 42.5 ticks, against 86.4, 53.0 and 80.8 for `round_robin`.
+- **When every stop costs time, the order holds.** With `--stop-time 2`, `least_combined_time` averages 70.8, 32.6 and 42.5 ticks, against 86.4, 53.0 and 80.8 for `round_robin`.
 - **It holds in other buildings.** Across 90 buildings (2 to 8 cars, 10 to 40 floors, room for 4 to 16, stop time 0 and 1) `least_combined_time` has the shortest average total time in 262 of 270 cases. In the other 8, all morning traffic, `least_newcomer_time` leads by about 1 tick or less, within two standard errors.
 
 ## Testing
@@ -92,7 +83,7 @@ Against `round_robin`, paired set by set, `least_combined_time` is shorter by 7.
 - **Hand-traced examples.** I traced the assignment's sample on paper before running it, and the traces are now tests.
 - **A rule checker that shares no code with the engine.** It reads only the results of a run and checks five rules: everyone is served, capacity, direction, legal movement, and records that agree with the positions log. It runs after every simulation and every comparison run.
 - **Random buildings, for correctness only.** Each scheduler runs 300 random buildings (1 to 10 cars, 2 to 50 floors, capacity 1 to 10, stop time 0 to 2), and every run must pass the rule checker.
-- **No use of later requests, by design and by test.** By design: the simulation hands the scheduler only the passenger who is asking now and the cars as they are now. By test: each of those 300 buildings is run a second time with one more request added halfway through, and everything before that tick must stay exactly as it was.
+- **No use of later requests, by design and by test.** The scheduler is handed only the passenger asking now and the cars as they are now. And each of those 300 buildings is run a second time with one more request added halfway through; everything before that tick must stay exactly as it was.
 
 ## Assumptions and trade-offs
 
