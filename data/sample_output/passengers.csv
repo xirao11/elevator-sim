@@ -1,0 +1,4 @@
+time,id,source,dest,car,board,arrive,wait,travel,total
+0,passenger1,1,51,0,0,50,0,50,50
+0,passenger2,1,37,0,0,36,0,36,36
+10,passenger3,20,1,1,29,48,19,19,38

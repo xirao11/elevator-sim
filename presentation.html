@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elevator dispatch simulation</title>
+<style>
+/* One file, no downloads: it opens with a double-click and works offline.
+   Five tabs. The first is the whole story in one screen: the idea and the result. The last is one small
+   example played tick by tick, for anyone who wants the mechanics.
+   Every number on the page is in the DATA, OTHERS and EXAMPLE blocks at the bottom, and all three were produced
+   by the simulator in this repository. */
+:root {
+  color-scheme: light;
+  --plane: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11, 11, 11, 0.10); --wash: rgba(11, 11, 11, 0.05);
+  --accent: #6250d6;   /* the recommended scheduler, everywhere on this page */
+  --context: #898781;  /* the other three */
+  --car0: #2a78d6; --car1: #eb6834;  /* the two cars in the example */
+  --font-text: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-data: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --plane: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10); --wash: rgba(255, 255, 255, 0.06);
+    --accent: #9085e9;
+    --car0: #3987e5; --car1: #d95926;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--plane); color: var(--ink); font-family: var(--font-text); font-size: 16px; line-height: 1.5; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 28px 16px 72px; display: flex; flex-direction: column; gap: 24px; }
+h1 { font-size: 30px; line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+h2 { font-size: 20px; line-height: 1.3; font-weight: 600; margin: 0; }
+h3 { font-size: 15px; line-height: 1.3; font-weight: 600; margin: 0; }
+p { margin: 0; max-width: 72ch; }
+code, .mono { font-family: var(--font-data); font-size: 0.92em; }
+.sub { color: var(--ink-2); }
+.note { font-size: 13px; color: var(--ink-2); }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.block { display: flex; flex-direction: column; gap: 14px; }
+
+/* Tabs */
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--axis); }
+.tabs button {
+  font: inherit; font-size: 15px; color: var(--ink-2); background: none; border: 0; border-bottom: 3px solid transparent;
+  padding: 10px 14px; margin-bottom: -1px; cursor: pointer;
+}
+.tabs button:hover { color: var(--ink); background: var(--wash); }
+.tabs button[aria-selected="true"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+.tabs button:focus-visible, .row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.panel { display: flex; flex-direction: column; gap: 36px; }
+.panel[hidden] { display: none; }
+
+/* Overview: one table row per scheduler, in the order they were built. Its sentences wrap; the other tables do not. */
+.ideas { min-width: 600px; background: var(--surface); border: 1px solid var(--border); }
+.ideas th, .ideas td { text-align: left; white-space: normal; vertical-align: top; padding: 11px 12px; }
+.ideas td { font-size: 15px; }
+.ideas td.n { font-family: var(--font-text); font-size: 13px; font-weight: 400; color: var(--muted); padding-top: 13px; }
+.ideas td.name { font-family: var(--font-data); font-size: 13px; font-weight: 600; white-space: nowrap; padding-top: 13px; }
+.ideas td.counts { font-weight: 600; }
+.ideas td.what { font-size: 14px; font-weight: 400; color: var(--ink-2); }
+.ideas th.ticks, .ideas td.ticks { text-align: right; white-space: nowrap; }
+.ideas td.ticks { font-size: 20px; line-height: 1.25; font-weight: 600; }
+.ideas .pick { display: block; width: fit-content; margin-top: 5px; font-family: var(--font-text); font-size: 12px; line-height: 20px; font-weight: 400; border: 1px solid var(--accent); border-radius: 999px; padding: 0 8px; }
+
+/* Charts: one small panel per traffic pattern, on one shared scale */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card h3 small { font-weight: 400; color: var(--ink-2); font-size: 13px; }
+.row { display: grid; grid-template-columns: 9.2em minmax(0, 1fr); align-items: center; gap: 8px; border-radius: 4px; }
+.row .name { font-family: var(--font-data); font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.row.best .name { color: var(--ink); font-weight: 600; }
+.row .num { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.row.best .num { font-weight: 600; }
+/* A bar grows from the left edge, the baseline. Square there, rounded at the data end. */
+.track { display: flex; align-items: center; gap: 6px; border-left: 1px solid var(--axis); height: 22px; }
+.bar { height: 14px; border-radius: 0 4px 4px 0; background: var(--context); flex: none; }
+.row.best .bar { background: var(--accent); }
+.row:hover .bar { filter: brightness(1.12); }
+.key { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 13px; color: var(--ink-2); align-items: center; }
+.key span { display: inline-flex; align-items: center; gap: 6px; }
+.key i { display: inline-block; background: var(--context); }
+.key .k-best { width: 12px; height: 12px; border-radius: 3px; background: var(--accent); }
+.key .k-rest { width: 12px; height: 12px; border-radius: 3px; }
+
+/* A button inside a tab that leads on to another tab */
+.go-row { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; }
+.go { font: inherit; font-size: 15px; font-weight: 600; color: var(--ink); background: var(--surface); border: 1px solid var(--axis); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+.go:hover { background: var(--wash); }
+.go:focus-visible, .controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Tables */
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+caption { text-align: left; font-weight: 600; font-size: 15px; padding-bottom: 6px; }
+caption small { font-weight: 400; color: var(--ink-2); font-size: 13px; }
+th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; font-variant-numeric: tabular-nums; }
+th:first-child, td:first-child { text-align: left; }
+thead th { font-weight: 600; color: var(--ink-2); font-size: 13px; border-bottom-color: var(--axis); }
+td:first-child { font-family: var(--font-data); font-size: 13px; }
+tr.best td { font-weight: 600; }
+tr.best td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+
+.points { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 8px; max-width: 76ch; }
+.points b { font-weight: 600; }
+pre { margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-family: var(--font-data); font-size: 13px; overflow-x: auto; }
+.foot { border-top: 1px solid var(--grid); padding-top: 12px; max-width: none; }  /* the footnote at the end of a tab */
+.todo { background: var(--surface); border: 1px dashed var(--axis); border-radius: 10px; padding: 16px; }
+.todo ul { margin: 8px 0 0; padding-left: 1.2em; color: var(--ink-2); }
+
+/* The example. The requests come first. Then the current tick is the heading; Back, Next and Reset drive four
+   matching panels, one per scheduler: the building at that tick, what the scheduler counts under it, then the
+   ticks each person has spent so far. The heading and the buttons stay in view while the panels scroll. */
+.small { width: auto; min-width: min(100%, 380px); }
+.requests th, .requests td { text-align: left; padding-right: 28px; }
+.requests td:first-child { font-family: var(--font-text); font-size: 14px; }
+.stepper { position: sticky; top: 0; z-index: 5; background: var(--plane); padding: 8px 0; border-bottom: 1px solid var(--grid); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.now { font-size: 22px; line-height: 1.3; font-weight: 600; margin: 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; }
+.controls button {
+  font: inherit; font-size: 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--axis); border-radius: 6px;
+  padding: 4px 14px; min-height: 36px; cursor: pointer;
+}
+.controls button:hover:not(:disabled) { background: var(--wash); }
+.controls button:disabled { color: var(--muted); cursor: default; }
+.fork { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px; align-items: start; }  /* two by two; one column on a phone */
+.run { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.run.best { box-shadow: inset 0 3px 0 var(--accent); }
+.run-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
+.run-head h3 { font-family: var(--font-data); font-size: 14px; }
+.run-head span { font-size: 13px; color: var(--ink-2); }
+.run svg { display: block; width: 100%; max-width: 360px; height: auto; margin: 0 auto; }
+.x-grid { stroke: var(--grid); stroke-width: 1; }
+.x-guide { stroke: var(--muted); stroke-width: 1; }
+.x-floor { font-family: var(--font-data); font-size: 11px; fill: var(--muted); }
+.x-tag { font-family: var(--font-text); font-size: 12px; font-weight: 600; fill: var(--ink); }
+.x-tag.soft { font-weight: 400; fill: var(--ink-2); }
+.x-status { font-family: var(--font-text); font-size: 10px; fill: var(--ink-2); }
+.x-halo { paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.s0 { stroke: var(--car0); } .s1 { stroke: var(--car1); }
+.f0 { fill: var(--car0); } .f1 { fill: var(--car1); }
+.x-way { fill: none; stroke-width: 2; stroke-linecap: round; }
+.x-link { fill: none; stroke-width: 1; opacity: 0.6; }
+/* A car always looks the same: a box filled with its own colour. */
+.x-carbox { stroke-width: 2; }
+.x-carname { font-family: var(--font-data); font-size: 11px; font-weight: 600; fill: var(--surface); }
+.x-plus { font-family: var(--font-data); font-size: 13px; font-weight: 600; fill: var(--ink); }
+/* The sum under the drawing. Its height is held so the panel does not jump from tick to tick. */
+.calc { border-top: 2px solid var(--ink); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; min-height: 176px; }
+.calc .given { font-size: 14px; font-weight: 600; }
+.calc .ask { font-size: 14px; color: var(--ink-2); }
+.calc-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; font-family: var(--font-data); font-size: 19px; font-weight: 600; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.calc-row .who { font-family: var(--font-text); font-size: 14px; font-weight: 500; color: var(--ink-2); display: inline-flex; align-items: center; gap: 6px; min-width: 3.4em; }
+.calc-row .sw { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.calc-row .sw.c0 { background: var(--car0); } .calc-row .sw.c1 { background: var(--car1); }
+.calc-row .ok, .calc-row .why { font-family: var(--font-text); font-size: 14px; }
+.calc-row .ok { color: var(--ink); }
+.calc-row .why { font-weight: 400; color: var(--ink-2); }
+.calc .result { font-weight: 600; padding-top: 4px; }
+.calc .quiet { font-size: 14px; color: var(--ink-2); }
+/* Ticks so far: one cell per person, then the total. */
+.tally { border-top: 1px solid var(--grid); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.tally .cap { font-size: 13px; color: var(--ink-2); }
+.tally .cells { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tally .cell { display: flex; flex-direction: column; }
+.tally .name { font-size: 12px; color: var(--muted); }
+.tally .n { font-family: var(--font-data); font-size: 22px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.tally .cell.live .n, .tally .cell.sum .n { color: var(--ink); }
+.tally .cell.live .name { color: var(--ink); font-weight: 600; }
+.tally .cell.sum { border-left: 1px solid var(--grid); padding-left: 10px; }
+
+/* The hover readout. Every number in it is also in a table on the page. */
+#tip { position: fixed; z-index: 10; pointer-events: none; background: var(--ink); color: var(--plane); border-radius: 6px; padding: 6px 9px; font-size: 13px; line-height: 1.35; max-width: 260px; }
+#tip[hidden] { display: none; }
+#tip b { font-weight: 600; font-size: 14px; }
+#tip span { display: block; opacity: 0.8; }
+
+@media print {
+  .tabs, #tip, .controls, .go-row { display: none; }
+  .stepper { position: static; }
+  .panel[hidden] { display: flex; }
+  body { background: #fff; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="stack">
+    <h1>Elevator dispatch simulation</h1>
+    <p class="sub">Which car should each passenger take? Four rules, called schedulers, compared on the same passengers.</p>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button type="button" role="tab" id="tab-overview" data-panel="overview">Overview</button>
+    <button type="button" role="tab" id="tab-results" data-panel="results">Results</button>
+    <button type="button" role="tab" id="tab-checks" data-panel="checks">Checks and limits</button>
+    <button type="button" role="tab" id="tab-design" data-panel="design">System design</button>
+    <button type="button" role="tab" id="tab-example" data-panel="example">Example, tick by tick</button>
+  </nav>
+
+  <!-- 1. Overview: the idea as one table, then the result as one chart. Nothing else. -->
+  <section class="panel" role="tabpanel" id="panel-overview" aria-labelledby="tab-overview">
+    <div class="block">
+      <h2>The idea</h2>
+      <p class="sub">Four schedulers, in the order I built them. Each one counts something the one before it ignored.</p>
+      <div class="scroll"><table class="ideas" id="ideas"></table></div>
+      <p class="note">Ticks per trip: the average total time, wait + travel, over the three traffic patterns below. Shorter is better.</p>
+    </div>
+
+    <div class="block">
+      <h2>Average total time, by traffic pattern</h2>
+      <div class="cards" id="bars"></div>
+      <div class="key"><span><i class="k-best"></i>least_combined_time</span><span><i class="k-rest"></i>the other three</span><span>Ticks per passenger, wait + travel. Shorter is better.</span></div>
+    </div>
+
+    <div class="go-row">
+      <button type="button" class="go" data-go="results">All the numbers →</button>
+      <button type="button" class="go" data-go="example">One example, tick by tick →</button>
+    </div>
+    <p class="note setup foot"></p>
+  </section>
+
+  <!-- 2. Results: the detail behind the overview -->
+  <section class="panel" role="tabpanel" id="panel-results" aria-labelledby="tab-results">
+    <div class="block">
+      <h2>Minimum, average and maximum</h2>
+      <p class="sub">The statistics the assignment asks for. Each cell is min / average / max, in ticks.</p>
+      <div class="scroll"><table id="t-wait"></table></div>
+      <div class="scroll"><table id="t-total"></table></div>
+    </div>
+
+    <div class="block">
+      <h2>The longest wait</h2>
+      <p class="sub">The average is efficiency. The longest wait is fairness: the unluckiest passenger.</p>
+      <div class="cards" id="longest"></div>
+      <div class="key"><span><i class="k-best"></i>least_combined_time</span><span><i class="k-rest"></i>the other three</span><span>Ticks the unluckiest passenger waits for a car. Shorter is better.</span></div>
+    </div>
+
+    <div class="block">
+      <h2>When every stop costs time</h2>
+      <p class="sub">With a stop time of N, a car stays N more ticks whenever anyone steps in or out. Average total time at stop time 0 → 1 → 2.</p>
+      <div class="scroll"><table id="t-stop"></table></div>
+    </div>
+
+    <div class="block">
+      <h2>What the numbers say</h2>
+      <ul class="points" id="points"></ul>
+    </div>
+
+    <div class="block">
+      <h2>Run it yourself</h2>
+      <pre>python3 -m elevator_sim.scenarios                 # the comparison above, stops free
+python3 -m elevator_sim.scenarios --stop-time 1   # the same when every stop costs one tick
+python3 -m elevator_sim data/sample_requests.csv --cars 2   # one request file, one scheduler</pre>
+      <p class="note">Every number on this page was produced by the simulator in this repository.</p>
+    </div>
+    <p class="note setup foot"></p>
+  </section>
+
+  <!-- 3. Checks and limits -->
+  <section class="panel" role="tabpanel" id="panel-checks" aria-labelledby="tab-checks">
+    <div class="todo">
+      <h2>To come</h2>
+      <ul>
+        <li>How I know the simulation is right: hand-traced examples, the rule checker, 300 random buildings per scheduler.</li>
+        <li>How I know no scheduler uses a request that has not been made yet.</li>
+        <li>Where the best scheduler loses: three passengers and a spare car.</li>
+        <li>What I would build next, and how I used AI.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 4. System design -->
+  <section class="panel" role="tabpanel" id="panel-design" aria-labelledby="tab-design">
+    <div class="todo">
+      <h2>To come</h2>
+      <ul>
+        <li>The key idea in plain words, for someone who does not write code.</li>
+        <li>The Python files, and what each function in them does.</li>
+        <li>The design decisions, and what each one costs.</li>
+        <li>Where to change what.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 5. Example, tick by tick: the mechanics, for anyone who asks -->
+  <section class="panel" role="tabpanel" id="panel-example" aria-labelledby="tab-example">
+    <div class="block">
+      <h2>Two cars, two passengers, four schedulers</h2>
+      <p class="sub">The same two requests, run once under each scheduler. Step through the ticks.</p>
+      <div class="scroll"><table class="small requests" id="requests"></table></div>
+      <p class="note" id="building"></p>
+      <div class="stepper">
+        <p class="now" id="now" aria-live="polite"></p>
+        <div class="controls">
+          <button type="button" id="back">◀ Back</button>
+          <button type="button" id="next">Next ▶</button>
+          <button type="button" id="reset">Reset</button>
+        </div>
+      </div>
+      <div class="fork" id="stage"></div>
+      <p class="note">All four runs were produced by the simulator's own code. The page only draws them.</p>
+    </div>
+  </section>
+</div>
+<div id="tip" hidden></div>
+
+<script>
+// Every number in the comparison. Produced by the simulator in this repository: 4 cars, 20 floors, capacity 8,
+// 300 passengers per run, 20 sets of passengers per pattern, at stop time 0, 1 and 2.
+const DATA = {"building":{"cars":4,"floors":20,"capacity":8,"people":300,"window":300,"seeds":20},"patterns":["morning","lunch","evening"],"schedulers":["round_robin","nearest_car","least_newcomer_time","least_combined_time"],"stop":{"0":{"morning":{"round_robin":{"wait_min":0,"wait_avg":19.99,"wait_p90":35.45,"wait_max":61.05,"total_min":1.95,"total_avg":29.83,"total_max":72.55,"diff":0.0,"diff_se":0.0},"nearest_car":{"wait_min":0,"wait_avg":27.5,"wait_p90":58.3,"wait_max":97.6,"total_min":1.4,"total_avg":37.34,"total_max":110.5,"diff":7.51,"diff_se":0.9},"least_newcomer_time":{"wait_min":0,"wait_avg":12.57,"wait_p90":20.75,"wait_max":58.35,"total_min":1.4,"total_avg":22.41,"total_max":68.95,"diff":-7.42,"diff_se":0.25},"least_combined_time":{"wait_min":0,"wait_avg":12.49,"wait_p90":20.9,"wait_max":31.9,"total_min":1.35,"total_avg":22.33,"total_max":46.55,"diff":-7.5,"diff_se":0.27}},"lunch":{"round_robin":{"wait_min":0,"wait_avg":16.61,"wait_p90":30.55,"wait_max":38.55,"total_min":1.9,"total_avg":26.28,"total_max":52.9,"diff":0.0,"diff_se":0.0},"nearest_car":{"wait_min":0,"wait_avg":14.75,"wait_p90":34.2,"wait_max":67.3,"total_min":1.2,"total_avg":24.42,"total_max":75.25,"diff":-1.85,"diff_se":0.19},"least_newcomer_time":{"wait_min":0,"wait_avg":7.1,"wait_p90":15.4,"wait_max":55.2,"total_min":1.15,"total_avg":16.77,"total_max":60.35,"diff":-9.51,"diff_se":0.35},"least_combined_time":{"wait_min":0,"wait_avg":5.56,"wait_p90":12.05,"wait_max":22.75,"total_min":1.1,"total_avg":15.23,"total_max":38.05,"diff":-11.04,"diff_se":0.14}},"evening":{"round_robin":{"wait_min":0,"wait_avg":20.13,"wait_p90":34.45,"wait_max":131.6,"total_min":1.95,"total_avg":29.97,"total_max":133.5,"diff":0.0,"diff_se":0.0},"nearest_car":{"wait_min":0,"wait_avg":24.47,"wait_p90":54.1,"wait_max":227.85,"total_min":1.25,"total_avg":34.31,"total_max":230.85,"diff":4.34,"diff_se":0.61},"least_newcomer_time":{"wait_min":0,"wait_avg":13.76,"wait_p90":32.6,"wait_max":128.3,"total_min":1.15,"total_avg":23.59,"total_max":131.85,"diff":-6.37,"diff_se":0.66},"least_combined_time":{"wait_min":0,"wait_avg":7.63,"wait_p90":16.35,"wait_max":32.8,"total_min":1.15,"total_avg":17.47,"total_max":47.95,"diff":-12.5,"diff_se":0.34}}},"1":{"morning":{"round_robin":{"wait_min":0,"wait_avg":40.94,"wait_p90":75.05,"wait_max":135,"total_min":3.35,"total_avg":54.28,"total_max":152.65,"diff":0.0,"diff_se":0.0},"nearest_car":{"wait_min":0,"wait_avg":49.44,"wait_p90":112.65,"wait_max":170.35,"total_min":2.4,"total_avg":62.92,"total_max":187.7,"diff":8.63,"diff_se":2.41},"least_newcomer_time":{"wait_min":0,"wait_avg":31.58,"wait_p90":59.3,"wait_max":91.7,"total_min":2.5,"total_avg":44.96,"total_max":110.15,"diff":-9.32,"diff_se":0.84},"least_combined_time":{"wait_min":0,"wait_avg":28.95,"wait_p90":54.05,"wait_max":73.45,"total_min":2.65,"total_avg":42.22,"total_max":91.5,"diff":-12.06,"diff_se":0.77}},"lunch":{"round_robin":{"wait_min":0,"wait_avg":22.98,"wait_p90":42.05,"wait_max":87.5,"total_min":2.45,"total_avg":35.94,"total_max":95.9,"diff":0.0,"diff_se":0.0},"nearest_car":{"wait_min":0,"wait_avg":23.31,"wait_p90":49.9,"wait_max":134.7,"total_min":2.1,"total_avg":36.49,"total_max":140.6,"diff":0.55,"diff_se":0.59},"least_newcomer_time":{"wait_min":0,"wait_avg":15.32,"wait_p90":30.35,"wait_max":118.65,"total_min":2.25,"total_avg":28.21,"total_max":124.1,"diff":-7.72,"diff_se":0.89},"least_combined_time":{"wait_min":0,"wait_avg":10.69,"wait_p90":22.55,"wait_max":41.4,"total_min":2.3,"total_avg":23.36,"total_max":58.3,"diff":-12.57,"diff_se":0.48}},"evening":{"round_robin":{"wait_min":0,"wait_avg":39.69,"wait_p90":99.2,"wait_max":289.9,"total_min":3.4,"total_avg":52.73,"total_max":293.4,"diff":0.0,"diff_se":0.0},"nearest_car":{"wait_min":0,"wait_avg":43.22,"wait_p90":117.25,"wait_max":334.1,"total_min":2.3,"total_avg":56.04,"total_max":338.65,"diff":3.31,"diff_se":1.17},"least_newcomer_time":{"wait_min":0,"wait_avg":27.67,"wait_p90":73.3,"wait_max":252,"total_min":2.6,"total_avg":40.5,"total_max":255.75,"diff":-12.23,"diff_se":1.25},"least_combined_time":{"wait_min":0,"wait_avg":15.24,"wait_p90":30.65,"wait_max":81.4,"total_min":2.3,"total_avg":27.9,"total_max":90.45,"diff":-24.84,"diff_se":0.79}}},"2":{"morning":{"round_robin":{"wait_min":0,"wait_avg":69.48,"wait_p90":132.1,"wait_max":193.2,"total_min":3.65,"total_avg":86.38,"total_max":213.7,"diff":0.0,"diff_se":0.0},"nearest_car":{"wait_min":0,"wait_avg":71.97,"wait_p90":169.3,"wait_max":248.1,"total_min":3.75,"total_avg":89.2,"total_max":268.2,"diff":2.82,"diff_se":1.77},"least_newcomer_time":{"wait_min":0,"wait_avg":59.09,"wait_p90":115.1,"wait_max":151.65,"total_min":3.4,"total_avg":75.93,"total_max":175.25,"diff":-10.45,"diff_se":0.7},"least_combined_time":{"wait_min":0,"wait_avg":54.39,"wait_p90":105.65,"wait_max":128.25,"total_min":3.85,"total_avg":70.83,"total_max":150.95,"diff":-15.55,"diff_se":0.7}},"lunch":{"round_robin":{"wait_min":0,"wait_avg":35.86,"wait_p90":65.05,"wait_max":187.2,"total_min":3.9,"total_avg":52.96,"total_max":193.65,"diff":0.0,"diff_se":0.0},"nearest_car":{"wait_min":0,"wait_avg":39.03,"wait_p90":79.35,"wait_max":264.15,"total_min":3.1,"total_avg":56.14,"total_max":270.9,"diff":3.18,"diff_se":0.71},"least_newcomer_time":{"wait_min":0,"wait_avg":23.53,"wait_p90":45.65,"wait_max":229.3,"total_min":3.2,"total_avg":40.32,"total_max":236.75,"diff":-12.64,"diff_se":0.83},"least_combined_time":{"wait_min":0,"wait_avg":16.5,"wait_p90":32.3,"wait_max":80.6,"total_min":3.3,"total_avg":32.63,"total_max":94.3,"diff":-20.33,"diff_se":0.55}},"evening":{"round_robin":{"wait_min":0,"wait_avg":64.98,"wait_p90":186.75,"wait_max":338.55,"total_min":4.45,"total_avg":80.78,"total_max":343.8,"diff":0.0,"diff_se":0.0},"nearest_car":{"wait_min":0,"wait_avg":66.32,"wait_p90":192.8,"wait_max":381.65,"total_min":3.65,"total_avg":81.85,"total_max":387.4,"diff":1.07,"diff_se":1.19},"least_newcomer_time":{"wait_min":0,"wait_avg":48.94,"wait_p90":152.8,"wait_max":316.45,"total_min":3.55,"total_avg":64.47,"total_max":324.6,"diff":-16.32,"diff_se":1.15},"least_combined_time":{"wait_min":0,"wait_avg":27.35,"wait_p90":58.8,"wait_max":170.85,"total_min":3.4,"total_avg":42.48,"total_max":177.55,"diff":-38.3,"diff_se":0.94}}}}};
+
+// The same comparison in other buildings: every mix of 2, 3, 4, 6, 8 cars; 10, 20, 40 floors; room for 4, 8, 16;
+// stop time 0 and 1; 75 passengers per car; 10 sets of passengers per pattern. A case is one building under one pattern.
+// Any one of them: python3 -m elevator_sim.scenarios --cars 6 --floors 40 --capacity 4 --stop-time 1 --seeds 10
+const OTHERS = {"buildings":90,"cases":270,"best":262,"cars":"2–8","floors":"10–40","capacity":"4–16","stops":"0 or 1",
+  "rest":"all morning, least_newcomer_time is ahead by about 1 tick or less, within the noise."};
+
+const BEST = "least_combined_time";
+const PATTERN_NOTE = { morning: "85% go up from the lobby", lunch: "mixed traffic", evening: "85% go down to the lobby" };
+const free = DATA.stop["0"];  // stops are free: the default
+const $ = function (id) { return document.getElementById(id); };
+const one = function (x) { return x.toFixed(1); };
+const whole = function (x) { return String(Math.round(x)); };
+
+function tag(name, className, text) {
+  const node = document.createElement(name);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+// One scheduler's average trip over all three patterns, stops free. Every pattern has the same number of
+// passengers, so the average of the three averages is the average over everyone.
+function averageTrip(s) {
+  return DATA.patterns.reduce(function (sum, p) { return sum + free[p][s].total_avg; }, 0) / DATA.patterns.length;
+}
+
+// ---- Overview: one table row per scheduler. The words are the idea; the number is its average trip.
+(function ideas() {
+  // [what it counts, how it picks a car]
+  const words = {
+    round_robin: ["Nothing", "The cars take turns."],
+    nearest_car: ["Floors", "The car the fewest floors away. But near is not soon: that car may be heading the other way."],
+    least_newcomer_time: ["The new passenger's time", "The car that gets the new passenger to their floor soonest."],
+    least_combined_time: ["Everyone's time", "The new passenger's time, plus the delay they cause to that car's other passengers."]
+  };
+  const t = $("ideas");
+  const head = t.createTHead().insertRow();
+  [["", "#"], ["", "Scheduler"], ["", "What it counts"], ["", "How it picks a car"], ["ticks", "Ticks per trip"]].forEach(function (h) {
+    head.appendChild(tag("th", h[0], h[1]));
+  });
+  const body = t.createTBody();
+  DATA.schedulers.forEach(function (s, k) {
+    const row = body.insertRow();
+    if (s === BEST) row.className = "best";
+    row.appendChild(tag("td", "n", String(k + 1)));
+    const name = tag("td", "name", s);
+    if (s === BEST) name.appendChild(tag("span", "pick", "recommended"));
+    row.appendChild(name);
+    row.appendChild(tag("td", "counts", words[s][0]));
+    row.appendChild(tag("td", "what", words[s][1]));
+    row.appendChild(tag("td", "ticks", one(averageTrip(s))));
+  });
+})();
+
+// ---- The footnote at the end of a tab: which building the numbers come from, and what the other buildings gave.
+(function setup() {
+  const b = DATA.building, o = OTHERS;
+  const text = "Example building: " + b.cars + " cars, " + b.floors + " floors, " + b.capacity + " people per car, " +
+    b.people + " passengers over " + b.window + " ticks, " + b.seeds + " random passenger sets per pattern, the same for every scheduler. " +
+    "One tick is one floor. In " + o.buildings + " other buildings (" + o.cars + " cars, " + o.floors + " floors, " +
+    o.capacity + " per car, stop time " + o.stops + "), " + BEST + " has the shortest average trip in " +
+    o.best + " of " + o.cases + " cases. In the other " + (o.cases - o.best) + ", " + o.rest;
+  Array.prototype.slice.call(document.querySelectorAll(".setup")).forEach(function (node) { node.textContent = text; });
+})();
+
+// ---- The hover readout, shared by both charts. Keyboard focus shows the same.
+const tip = $("tip");
+function showTip(row, event) {
+  tip.replaceChildren(tag("b", "", row.dataset.value), tag("span", "", row.dataset.what), tag("span", "", row.dataset.more));
+  tip.hidden = false;
+  const box = row.getBoundingClientRect();
+  const x = event && event.clientX !== undefined ? event.clientX : box.left + 40;
+  tip.style.left = Math.min(x + 12, window.innerWidth - tip.offsetWidth - 8) + "px";
+  tip.style.top = Math.max(8, box.top - tip.offsetHeight - 6) + "px";
+}
+function hoverable(row, value, what, more) {
+  row.tabIndex = 0;
+  row.dataset.value = value; row.dataset.what = what; row.dataset.more = more;
+  row.addEventListener("pointermove", function (event) { showTip(row, event); });
+  row.addEventListener("pointerleave", function () { tip.hidden = true; });
+  row.addEventListener("focus", function () { showTip(row); });
+  row.addEventListener("blur", function () { tip.hidden = true; });
+}
+
+function card(pattern) {
+  const box = tag("div", "card");
+  const title = tag("h3", "", pattern.charAt(0).toUpperCase() + pattern.slice(1) + " ");
+  title.appendChild(tag("small", "", PATTERN_NOTE[pattern]));
+  box.appendChild(title);
+  return box;
+}
+
+// ---- A bar chart: one bar per scheduler, one panel per pattern, every panel on the same scale.
+// `valueOf` picks the number to draw from one scheduler's numbers; `show` writes it; `more` is the second line of the readout.
+function barChart(id, valueOf, show, unit, more) {
+  let top = 0;
+  DATA.patterns.forEach(function (p) { DATA.schedulers.forEach(function (s) { top = Math.max(top, valueOf(free[p][s])); }); });
+  DATA.patterns.forEach(function (p) {
+    const box = card(p);
+    DATA.schedulers.forEach(function (s) {
+      const c = free[p][s];
+      const row = tag("div", "row" + (s === BEST ? " best" : ""));
+      row.appendChild(tag("span", "name", s));
+      const track = tag("div", "track");
+      const bar = tag("div", "bar");
+      bar.style.width = "calc((100% - 3.2em) * " + (valueOf(c) / top).toFixed(4) + ")";  // 3.2em is kept free for the number
+      track.appendChild(bar);
+      track.appendChild(tag("span", "num", show(valueOf(c))));
+      row.appendChild(track);
+      hoverable(row, show(valueOf(c)) + " " + unit, s + ", " + p, more(c));
+      box.appendChild(row);
+    });
+    $(id).appendChild(box);
+  });
+}
+barChart("bars", function (c) { return c.total_avg; }, one, "ticks, average total",
+  function (c) { return "average wait " + one(c.wait_avg) + ", then the ride"; });
+barChart("longest", function (c) { return c.wait_max; }, whole, "ticks, longest wait",
+  function (c) { return "average wait " + one(c.wait_avg) + "; 9 in 10 wait under " + whole(c.wait_p90); });
+
+// ---- Tables. `cell` turns one scheduler's numbers for one pattern into the text of a table cell.
+function table(id, caption, small, cell) {
+  const t = $(id);
+  const cap = tag("caption", "", caption + " ");
+  cap.appendChild(tag("small", "", small));
+  t.appendChild(cap);
+  const head = t.createTHead().insertRow();
+  head.appendChild(tag("th", "", "Scheduler"));
+  DATA.patterns.forEach(function (p) { head.appendChild(tag("th", "", p)); });
+  const body = t.createTBody();
+  DATA.schedulers.forEach(function (s) {
+    const row = body.insertRow();
+    if (s === BEST) row.className = "best";
+    row.appendChild(tag("td", "", s));
+    DATA.patterns.forEach(function (p) { row.appendChild(tag("td", "", cell(s, p))); });
+  });
+}
+table("t-wait", "Wait time", "min / average / max", function (s, p) {
+  const c = free[p][s];
+  return whole(c.wait_min) + " / " + one(c.wait_avg) + " / " + whole(c.wait_max);
+});
+table("t-total", "Total time, wait + travel", "min / average / max", function (s, p) {
+  const c = free[p][s];
+  return whole(c.total_min) + " / " + one(c.total_avg) + " / " + whole(c.total_max);
+});
+table("t-stop", "Average total time", "stop time 0 → 1 → 2", function (s, p) {
+  return ["0", "1", "2"].map(function (stop) { return one(DATA.stop[stop][p][s].total_avg); }).join(" → ");
+});
+
+// ---- What the numbers say. The numbers inside the sentences are read from the data.
+(function points() {
+  const e = free.evening, m = free.morning;
+  const lead = function (stop) {
+    return DATA.patterns.map(function (p) {
+      const c = DATA.stop[stop][p];
+      return one(c.least_newcomer_time.total_avg - c[BEST].total_avg);
+    });
+  };
+  const three = function (list) { return list[0] + ", " + list[1] + " and " + list[2]; };
+  const list = [
+    ["Distance is not time.", " nearest_car gives everyone at the lobby the same car, and that car fills up. In the morning it averages " +
+      one(m.nearest_car.total_avg) + " ticks against " + one(m.round_robin.total_avg) + " for round_robin. With roomier cars it wins."],
+    ["An estimate in ticks beats both simple rules.", " least_newcomer_time knows which way the car is heading, what it has to do first, and whether it will have room."],
+    ["Counting the other passengers helps the unluckiest one most.", " The longest evening wait falls from " +
+      whole(e.least_newcomer_time.wait_max) + " to " + whole(e[BEST].wait_max) + ". A newcomer no longer takes the place of someone waiting further along."],
+    ["A stop time keeps the order and widens the lead.", " least_combined_time beats least_newcomer_time by " + three(lead("0")) +
+      " ticks when stops are free (morning, lunch, evening), and by " + three(lead("2")) + " at stop time 2. Part of that growth is the building getting overloaded."],
+    ["It can still lose.", " It knows only who has asked so far, and a choice of car is final. The smallest case is under Checks and limits."]
+  ];
+  list.forEach(function (item) {
+    const li = tag("li", "");
+    li.appendChild(tag("b", "", item[0]));
+    li.appendChild(document.createTextNode(item[1]));
+    $("points").appendChild(li);
+  });
+})();
+
+// ---- The example. Two cars, seven floors, two requests, run once under each of the four schedulers.
+// `positions` is the simulator's own log: every car's floor at every tick. A decision holds, for each car, what
+// it would do if it got the person who asks: `distance` is how many floors away it is now, `path` is its floor at
+// every tick from now, `wait` + `ride` = `own` is that person's ticks, `added` the ticks added to the car's other passengers.
+const EXAMPLE = {"floors":7,"trips":[["Pat",5,1,0],["Ann",3,7,1]],"runs":{"round_robin":{"positions":[[1,1],[2,1],[3,2],[4,3],[5,4],[4,5],[3,6],[2,7],[1,7]],"decisions":[{"who":"Pat","tick":0,"options":[{"car":0,"floor":1,"direction":0,"riders":[],"waiting":[],"path":[1,2,3,4,5,4,3,2,1],"wait":4,"ride":4,"own":8,"added":0,"others":[],"combined":8,"distance":4},{"car":1,"floor":1,"direction":0,"riders":[],"waiting":[],"path":[1,2,3,4,5,4,3,2,1],"wait":4,"ride":4,"own":8,"added":0,"others":[],"combined":8,"distance":4}],"chosen":0},{"who":"Ann","tick":1,"options":[{"car":0,"floor":2,"direction":1,"riders":[],"waiting":["Pat"],"path":[2,3,4,5,6,7,6,5,4,3,2,1],"wait":1,"ride":4,"own":5,"added":4,"others":[{"id":"Pat","added":4,"board_without":4,"board_with":8}],"combined":9,"distance":1},{"car":1,"floor":1,"direction":0,"riders":[],"waiting":[],"path":[1,2,3,4,5,6,7],"wait":2,"ride":4,"own":6,"added":0,"others":[],"combined":6,"distance":2}],"chosen":1}],"passengers":[{"id":"Pat","source":5,"dest":1,"request":0,"car":0,"board":4,"arrive":8,"total":8},{"id":"Ann","source":3,"dest":7,"request":1,"car":1,"board":3,"arrive":7,"total":6}]},"nearest_car":{"positions":[[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],[7,1],[6,1],[5,1],[4,1],[3,1],[2,1],[1,1]],"decisions":[{"who":"Pat","tick":0,"options":[{"car":0,"floor":1,"direction":0,"riders":[],"waiting":[],"path":[1,2,3,4,5,4,3,2,1],"wait":4,"ride":4,"own":8,"added":0,"others":[],"combined":8,"distance":4},{"car":1,"floor":1,"direction":0,"riders":[],"waiting":[],"path":[1,2,3,4,5,4,3,2,1],"wait":4,"ride":4,"own":8,"added":0,"others":[],"combined":8,"distance":4}],"chosen":0},{"who":"Ann","tick":1,"options":[{"car":0,"floor":2,"direction":1,"riders":[],"waiting":["Pat"],"path":[2,3,4,5,6,7,6,5,4,3,2,1],"wait":1,"ride":4,"own":5,"added":4,"others":[{"id":"Pat","added":4,"board_without":4,"board_with":8}],"combined":9,"distance":1},{"car":1,"floor":1,"direction":0,"riders":[],"waiting":[],"path":[1,2,3,4,5,6,7],"wait":2,"ride":4,"own":6,"added":0,"others":[],"combined":6,"distance":2}],"chosen":0}],"passengers":[{"id":"Pat","source":5,"dest":1,"request":0,"car":0,"board":8,"arrive":12,"total":12},{"id":"Ann","source":3,"dest":7,"request":1,"car":0,"board":2,"arrive":6,"total":5}]},"least_newcomer_time":{"positions":[[1,1],[2,1],[3,1],[4,1],[5,1],[6,1],[7,1],[6,1],[5,1],[4,1],[3,1],[2,1],[1,1]],"decisions":[{"who":"Pat","tick":0,"options":[{"car":0,"floor":1,"direction":0,"riders":[],"waiting":[],"path":[1,2,3,4,5,4,3,2,1],"wait":4,"ride":4,"own":8,"added":0,"others":[],"combined":8,"distance":4},{"car":1,"floor":1,"direction":0,"riders":[],"waiting":[],"path":[1,2,3,4,5,4,3,2,1],"wait":4,"ride":4,"own":8,"added":0,"others":[],"combined":8,"distance":4}],"chosen":0},{"who":"Ann","tick":1,"options":[{"car":0,"floor":2,"direction":1,"riders":[],"waiting":["Pat"],"path":[2,3,4,5,6,7,6,5,4,3,2,1],"wait":1,"ride":4,"own":5,"added":4,"others":[{"id":"Pat","added":4,"board_without":4,"board_with":8}],"combined":9,"distance":1},{"car":1,"floor":1,"direction":0,"riders":[],"waiting":[],"path":[1,2,3,4,5,6,7],"wait":2,"ride":4,"own":6,"added":0,"others":[],"combined":6,"distance":2}],"chosen":0}],"passengers":[{"id":"Pat","source":5,"dest":1,"request":0,"car":0,"board":8,"arrive":12,"total":12},{"id":"Ann","source":3,"dest":7,"request":1,"car":0,"board":2,"arrive":6,"total":5}]},"least_combined_time":{"positions":[[1,1],[2,1],[3,2],[4,3],[5,4],[4,5],[3,6],[2,7],[1,7]],"decisions":[{"who":"Pat","tick":0,"options":[{"car":0,"floor":1,"direction":0,"riders":[],"waiting":[],"path":[1,2,3,4,5,4,3,2,1],"wait":4,"ride":4,"own":8,"added":0,"others":[],"combined":8,"distance":4},{"car":1,"floor":1,"direction":0,"riders":[],"waiting":[],"path":[1,2,3,4,5,4,3,2,1],"wait":4,"ride":4,"own":8,"added":0,"others":[],"combined":8,"distance":4}],"chosen":0},{"who":"Ann","tick":1,"options":[{"car":0,"floor":2,"direction":1,"riders":[],"waiting":["Pat"],"path":[2,3,4,5,6,7,6,5,4,3,2,1],"wait":1,"ride":4,"own":5,"added":4,"others":[{"id":"Pat","added":4,"board_without":4,"board_with":8}],"combined":9,"distance":1},{"car":1,"floor":1,"direction":0,"riders":[],"waiting":[],"path":[1,2,3,4,5,6,7],"wait":2,"ride":4,"own":6,"added":0,"others":[],"combined":6,"distance":2}],"chosen":1}],"passengers":[{"id":"Pat","source":5,"dest":1,"request":0,"car":0,"board":4,"arrive":8,"total":8},{"id":"Ann","source":3,"dest":7,"request":1,"car":1,"board":3,"arrive":7,"total":6}]}}};
+
+(function example() {
+  const C = EXAMPLE, NS = "http://www.w3.org/2000/svg";
+  // [name in the data, what it counts, which number it compares]
+  const RULES = [
+    ["round_robin", "counts nothing", "turn"],
+    ["nearest_car", "counts floors", "floors"],
+    ["least_newcomer_time", "counts the newcomer's ticks", "own"],
+    ["least_combined_time", "also counts the ticks added to others", "combined"]
+  ];
+  const trip = {};
+  C.trips.forEach(function (t) { trip[t[0]] = { from: t[1], to: t[2], tick: t[3] }; });
+  const NAMES = C.trips.map(function (t) { return t[0]; });
+  const LAST = Math.max.apply(null, RULES.map(function (r) { return C.runs[r[0]].positions.length; })) - 1;
+  let tick = 0;
+
+  const ticks = function (n) { return n + (n === 1 ? " tick" : " ticks"); };
+  const going = function (name) { return trip[name].to > trip[name].from ? "up" : "down"; };
+  const way = function (name) { return trip[name].to > trip[name].from ? "↑" : "↓"; };
+  const asker = function (t) { return NAMES.filter(function (name) { return trip[name].tick === t; })[0] || null; };
+  function el(name, attrs, text) {
+    const node = document.createElementNS(NS, name);
+    Object.keys(attrs).forEach(function (key) { node.setAttribute(key, attrs[key]); });
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  // A car's route with the person who asks, cut into straight runs: first to reach them, then their ride. One floor is one tick.
+  function runsOf(path, from, to) {
+    const out = [];
+    let a = from;
+    while (a < to) {
+      const dir = Math.sign(path[a + 1] - path[a]);
+      let b = a + 1;
+      while (b < to && Math.sign(path[b + 1] - path[b]) === dir) b += 1;
+      out.push({ a: path[a], b: path[b], n: b - a });
+      a = b;
+    }
+    return out;
+  }
+  function legsOf(option) {
+    return runsOf(option.path, 0, option.wait).concat(runsOf(option.path, option.wait, option.wait + option.ride));
+  }
+  function ownSum(option) {
+    const n = legsOf(option).map(function (leg) { return leg.n; });
+    return n.length > 1 ? n.join(" + ") + " = " + option.own : String(option.own);
+  }
+  function status(dir, riders, calls) {
+    const arrow = dir > 0 ? "↑ " : dir < 0 ? "↓ " : "";
+    if (riders.length) return arrow + riders.map(function (name) { return name + " to " + trip[name].to; }).join(", ");
+    if (calls.length) return arrow + "for " + calls.join(", ");
+    return dir === 0 ? "idle" : arrow.trim();
+  }
+
+  // Everything one panel shows at tick t, read from that scheduler's run.
+  function viewAt(run, t) {
+    const rows = run.positions, pos = rows[Math.min(t, rows.length - 1)], next = rows[Math.min(t + 1, rows.length - 1)];
+    const ask = run.decisions.filter(function (d) { return d.tick === t; })[0] || null;
+    const people = run.passengers.map(function (p) {
+      let state = "done";
+      if (t < p.request) state = "later";
+      else if (ask && ask.who === p.id) state = "asking";
+      else if (t < p.board) state = "waiting";
+      else if (t < p.arrive) state = "riding";
+      return {
+        id: p.id, car: p.car, state: state, to: p.dest,
+        spent: t < p.request ? null : Math.min(t, p.arrive) - p.request,  // ticks since they asked, until they get out
+        boardsNow: p.board === t && state !== "asking", outNow: p.arrive === t
+      };
+    });
+    const cars = pos.map(function (floor, n) {
+      if (ask) {
+        const o = ask.options[n];
+        return { floor: floor, status: status(o.direction, o.riders, o.waiting), legs: legsOf(o) };
+      }
+      const names = function (state) { return people.filter(function (p) { return p.car === n && p.state === state; }).map(function (p) { return p.id; }); };
+      return { floor: floor, status: status(Math.sign(next[n] - floor), names("riding"), names("waiting")), legs: [] };
+    });
+    return { tick: t, ask: ask, people: people, cars: cars, over: people.every(function (p) { return p.state === "done"; }) };
+  }
+
+  // The building at one tick. When someone asks, each car's route with them is drawn as arrows.
+  function draw(v) {
+    const floors = C.floors, pitch = 30;
+    const W = 360, H = 22 + (floors - 1) * pitch + 30;
+    const Y = function (f) { return H - 30 - (f - 1) * pitch; };
+    const BOX = [90, 242], LANES = [[146, 178, 210], [298, 330, 350]];
+    const label = "Tick " + v.tick + ". " + v.cars.map(function (car, n) { return "Car " + n + " is on floor " + car.floor + ", " + car.status; }).join(". ") + ".";
+    const svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": label });
+
+    for (let f = 1; f <= floors; f += 1) {
+      svg.appendChild(el("line", { x1: 26, x2: W - 4, y1: Y(f), y2: Y(f), class: v.ask && f === trip[v.ask.who].from ? "x-guide" : "x-grid" }));
+      svg.appendChild(el("text", { x: 20, y: Y(f) + 4, "text-anchor": "end", class: "x-floor" }, f));
+    }
+    // People standing on a floor. Bold: asking now. A dot in a car's colour: waiting for that car.
+    v.people.forEach(function (p) {
+      const y = Y(trip[p.id].from);
+      if (p.state === "asking") svg.appendChild(el("text", { x: 32, y: y - 5, class: "x-tag x-halo" }, p.id + " " + way(p.id)));
+      if (p.state === "waiting") {
+        svg.appendChild(el("circle", { cx: 35.5, cy: y - 9, r: 3.5, class: "f" + p.car }));
+        svg.appendChild(el("text", { x: 43, y: y - 5, class: "x-tag soft x-halo" }, p.id + " " + way(p.id)));
+      }
+    });
+
+    v.cars.forEach(function (car, n) {
+      const lanes = LANES[n], y0 = Y(car.floor);
+      let x = BOX[n] + 40, y = y0;
+      car.legs.forEach(function (leg, k) {
+        svg.appendChild(el("line", { x1: x, x2: lanes[k], y1: y, y2: y, class: "x-link s" + n }));
+        x = lanes[k]; y = Y(leg.b);
+      });
+      car.legs.forEach(function (leg, k) {
+        const lx = lanes[k], ya = Y(leg.a), yb = Y(leg.b), tipGap = leg.b > leg.a ? 9 : -9;
+        svg.appendChild(el("line", { x1: lx, x2: lx, y1: ya, y2: yb + tipGap, class: "x-way s" + n }));
+        svg.appendChild(el("polygon", { points: (lx - 6) + "," + (yb + tipGap) + " " + (lx + 6) + "," + (yb + tipGap) + " " + lx + "," + yb, class: "f" + n }));
+        svg.appendChild(el("text", { x: lx + 9, y: (ya + yb) / 2 + 4.5, class: "x-plus x-halo" }, "+" + leg.n));
+      });
+      svg.appendChild(el("rect", { x: BOX[n], y: y0 - 9, width: 40, height: 18, rx: 4, class: "x-carbox s" + n + " f" + n }));
+      svg.appendChild(el("text", { x: BOX[n] + 20, y: y0 + 4, "text-anchor": "middle", class: "x-carname" }, "car " + n));
+      svg.appendChild(el("text", { x: BOX[n] + 20, y: y0 + 21, "text-anchor": "middle", class: "x-status x-halo" }, car.status));
+    });
+    return svg;
+  }
+
+  // Under the drawing: what the scheduler counts when someone asks, otherwise what happens at this tick.
+  // `mode` is the number it compares: "turn" (none, the cars take turns), "floors", "own" ticks or "combined" ticks.
+  function calc(v, mode) {
+    const box = tag("div", "calc");
+    if (v.ask) {
+      const d = v.ask, who = d.who;
+      const value = function (o) { return mode === "floors" ? o.distance : mode === "own" ? o.own : o.combined; };
+      const tie = d.options.every(function (o) { return value(o) === value(d.options[0]); });
+      const asks = {
+        turn: who + " asks. The cars take turns. Nothing is counted:",
+        floors: who + " asks. Floors from each car to " + who + ":",
+        own: who + " asks. Ticks until " + who + " gets out, with each car:",
+        combined: who + " asks. " + who + "'s ticks, plus the ticks added to others:"
+      };
+      // What this person has to take as given: who was handed which car before they asked.
+      v.people.forEach(function (p) { if (p.state === "waiting") box.appendChild(tag("p", "given", p.id + " already has car " + p.car + ".")); });
+      box.appendChild(tag("p", "ask", asks[mode]));
+      d.options.forEach(function (o) {
+        const r = tag("div", "calc-row");
+        const label = tag("span", "who");
+        label.appendChild(tag("span", "sw c" + o.car));
+        label.appendChild(document.createTextNode("car " + o.car));
+        r.appendChild(label);
+        const picked = o.car === d.chosen;
+        if (mode === "turn") {
+          r.appendChild(picked ? tag("span", "ok", "✓ its turn") : tag("span", "why", "next"));
+        } else {
+          const sum = mode === "floors" ? String(o.distance) : mode === "own" ? ownSum(o) : o.own + " + " + o.added + " = " + o.combined;
+          r.appendChild(tag("span", "expr", sum));
+          if (picked) r.appendChild(tag("span", "ok", tie ? "✓ a tie, lowest car number" : mode === "floors" ? "✓ fewest floors" : "✓ fewest ticks"));
+        }
+        if (mode === "combined") {
+          const late = o.others.filter(function (other) { return other.added > 0; });
+          late.forEach(function (other) { r.appendChild(tag("span", "why", other.id + " is fetched " + other.added + " later")); });
+        }
+        box.appendChild(r);
+      });
+      const mine = d.options[d.chosen];
+      const late = mine.others.filter(function (other) { return other.added > 0; });
+      box.appendChild(tag("p", "result", who + " gets car " + d.chosen + "." +
+        (mode !== "combined" && late.length ? " Not counted: " + late[0].id + " is then fetched " + ticks(late[0].added) + " later." : "")));
+    }
+    const lines = [];
+    v.people.forEach(function (p) { if (p.outNow) lines.push(p.id + " gets out on floor " + p.to + "."); });
+    v.people.forEach(function (p) { if (p.boardsNow) lines.push(p.id + " gets in car " + p.car + "."); });
+    if (!v.ask && !lines.length) lines.push(v.over ? "Everyone has arrived." : "Nothing new at this tick.");
+    lines.forEach(function (line) { box.appendChild(tag("p", "quiet", line)); });
+    return box;
+  }
+
+  function tally(v) {
+    const box = tag("div", "tally");
+    box.appendChild(tag("p", "cap", v.over ? "Ticks from asking to getting out" : "Ticks since asking, so far"));
+    const cells = tag("div", "cells");
+    let total = 0;
+    v.people.forEach(function (p) {
+      const cell = tag("div", "cell" + (p.state === "later" || p.state === "done" ? "" : " live"));
+      cell.appendChild(tag("span", "name", p.id));
+      cell.appendChild(tag("span", "n", p.spent === null ? "–" : String(p.spent)));
+      cells.appendChild(cell);
+      total += p.spent || 0;
+    });
+    const sum = tag("div", "cell sum");
+    sum.appendChild(tag("span", "name", "total"));
+    sum.appendChild(tag("span", "n", String(total)));
+    cells.appendChild(sum);
+    box.appendChild(cells);
+    return box;
+  }
+
+  function render() {
+    const who = asker(tick);
+    $("now").textContent = "Tick " + tick + " of " + LAST +
+      (who ? " · " + who + " asks on floor " + trip[who].from + ", going " + going(who) + " to floor " + trip[who].to : "");
+    $("reset").disabled = tick === 0;
+    $("back").disabled = tick === 0;
+    $("next").disabled = tick === LAST;
+    RULES.forEach(function (r, k) {
+      const v = viewAt(C.runs[r[0]], tick);
+      $("run" + k).replaceChildren(draw(v), calc(v, r[2]), tally(v));
+    });
+  }
+  function go(t) { tick = Math.max(0, Math.min(LAST, t)); render(); }
+
+  RULES.forEach(function (r, k) {
+    const panel = tag("div", "run" + (r[0] === BEST ? " best" : ""));
+    const head = tag("div", "run-head");
+    head.appendChild(tag("h3", "", r[0]));
+    head.appendChild(tag("span", "", r[1]));
+    panel.appendChild(head);
+    const body = tag("div", "stack");
+    body.id = "run" + k;
+    panel.appendChild(body);
+    $("stage").appendChild(panel);
+  });
+  $("back").addEventListener("click", function () { go(tick - 1); });
+  $("next").addEventListener("click", function () { go(tick + 1); });
+  $("reset").addEventListener("click", function () { go(0); });
+
+  // The requests, above everything else: the two rows of the request file.
+  (function requests() {
+    const t = $("requests");
+    const start = C.runs[RULES[0][0]].positions[0];  // every car's floor at tick 0
+    $("building").textContent = start.length + " cars, " + C.floors + " floors. Both cars start on floor " + start[0] + ". Stops are free.";
+    t.appendChild(tag("caption", "", "The requests"));
+    const head = t.createTHead().insertRow();
+    ["Passenger", "Asks at tick", "From floor", "To floor"].forEach(function (h) { head.appendChild(tag("th", "", h)); });
+    const body = t.createTBody();
+    NAMES.forEach(function (name) {
+      const row = body.insertRow();
+      [name, trip[name].tick, trip[name].from, trip[name].to + " " + way(name)].forEach(function (x) { row.appendChild(tag("td", "", String(x))); });
+    });
+  })();
+
+  go(0);
+})();
+
+// ---- Tabs. The address ends in #overview, #results, #checks, #design or #example, so a tab can be reopened or linked.
+// A panel's id is "panel-" plus that name, not the name itself: otherwise the browser would scroll down to the
+// panel when the page opens, and the title and the tabs would be off the screen.
+(function tabs() {
+  const buttons = Array.prototype.slice.call(document.querySelectorAll(".tabs button"));
+  function show(id, focus) {
+    buttons.forEach(function (button) {
+      const on = button.dataset.panel === id;
+      button.setAttribute("aria-selected", on ? "true" : "false");
+      button.tabIndex = on ? 0 : -1;
+      $("panel-" + button.dataset.panel).hidden = !on;
+      if (on && focus) button.focus();
+    });
+  }
+  buttons.forEach(function (button, k) {
+    button.addEventListener("click", function () { history.replaceState(null, "", "#" + button.dataset.panel); show(button.dataset.panel); });
+    button.addEventListener("keydown", function (event) {
+      const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+      if (step === 0) return;
+      const next = buttons[(k + step + buttons.length) % buttons.length];
+      history.replaceState(null, "", "#" + next.dataset.panel);
+      show(next.dataset.panel, true);
+    });
+  });
+  // A button inside a tab that leads on to another tab.
+  Array.prototype.slice.call(document.querySelectorAll("[data-go]")).forEach(function (link) {
+    link.addEventListener("click", function () {
+      history.replaceState(null, "", "#" + link.dataset.go);
+      show(link.dataset.go);
+      window.scrollTo(0, 0);
+    });
+  });
+  const wanted = location.hash.slice(1);
+  show(buttons.some(function (b) { return b.dataset.panel === wanted; }) ? wanted : "overview");
+})();
+</script>
+</body>
+</html>

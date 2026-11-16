@@ -3,13 +3,13 @@
 from elevator_sim.car import Car
 from elevator_sim.config import Config
 from elevator_sim.passenger import Passenger
-from elevator_sim.schedulers import round_robin
+from elevator_sim.schedulers import least_combined_time
 
 
 def run(
     passengers: list[Passenger],
     config: Config = Config(),  # the building's settings; Config() means "every default"
-    scheduler=round_robin,  # the "which car?" rule: a function, passed in by name without brackets
+    scheduler=least_combined_time,  # the "which car?" rule: a function, passed in by name without brackets
 ) -> list[list[int]]:
     """Simulate the building described by `config` serving `passengers`.
 

@@ -11,7 +11,7 @@ def finished(id, source, dest, request_time, board_time, arrive_time):
                      board_time=board_time, arrive_time=arrive_time)
 
 
-# The sample with two cars and nearest car, as in out/passengers.csv.
+# The sample with two cars and nearest car, as the command line writes it to passengers.csv.
 SAMPLE_RUN = [
     finished("passenger1", 1, 51, request_time=0, board_time=0, arrive_time=50),
     finished("passenger2", 1, 37, request_time=0, board_time=0, arrive_time=36),

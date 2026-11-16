@@ -4,6 +4,8 @@
 
 It reads a request file, runs the simulation and writes two files to the output folder:
 positions.csv (every car's floor at every tick) and passengers.csv (one row per passenger).
+Without --out the folder is named after the request file: data/sample_requests.csv writes to
+out/sample_requests, so a second request file does not replace the first one's output.
 """
 
 import argparse
@@ -20,6 +22,7 @@ from elevator_sim.schedulers import SCHEDULERS
 from elevator_sim.simulation import run
 
 DEFAULTS = Config()  # every default is read from config.py, so it is written in one place only
+DEFAULT_SCHEDULER = "least_combined_time"  # the scheduler that did best in the comparison
 
 
 def main(argv=None) -> int:
@@ -39,8 +42,9 @@ def main(argv=None) -> int:
     parser.add_argument("--capacity", type=int, default=DEFAULTS.capacity, help="most riders one car may hold")
     # A flag typed as --stop-time is read back as args.stop_time: argparse turns the dash into an underscore.
     parser.add_argument("--stop-time", type=int, default=DEFAULTS.stop_time, help="extra ticks a car stays at a floor when anyone steps in or out")
-    parser.add_argument("--scheduler", choices=list(SCHEDULERS), default="round_robin", help="the rule that picks a car")
-    parser.add_argument("--out", default="out", help="folder for positions.csv and passengers.csv")
+    parser.add_argument("--scheduler", choices=list(SCHEDULERS), default=DEFAULT_SCHEDULER, help="the rule that picks a car")
+    # No default here: when --out is not typed, args.out is None and the folder is named after the request file.
+    parser.add_argument("--out", help="folder for positions.csv and passengers.csv; when left out, out/ followed by the request file's name")
     args = parser.parse_args(argv)
 
     # type=int only checks for a whole number. These check for a building that can exist.
@@ -81,19 +85,30 @@ def main(argv=None) -> int:
     if len(broken) > 0:
         raise RuntimeError("The simulation broke its own rules:\n  " + "\n  ".join(broken[:20]))
 
-    out = Path(args.out)
+    # Every request file gets its own folder, so running a second file does not replace the first one's output.
+    # .stem is the file name without its ending: data/sample_requests.csv gives "sample_requests".
+    out = Path(args.out) if args.out is not None else Path("out") / request_file.stem
     out.mkdir(parents=True, exist_ok=True)  # make the folder if it is not there yet
     positions_file = out / "positions.csv"  # / joins folder and file name
     passengers_file = out / "passengers.csv"
     _write_positions(positions_file, log)
     _write_passengers(passengers_file, passengers)
 
+    # Every setting of this run, then the value each one has when its flag is left out.
+    print("Settings in this run: " + _settings(args.cars, args.floors, args.capacity, args.stop_time, args.scheduler))
+    print("Defaults:             " + _settings(DEFAULTS.num_cars, DEFAULTS.num_floors, DEFAULTS.capacity, DEFAULTS.stop_time, DEFAULT_SCHEDULER))
+    print()
     last_arrival = max(passenger.arrive_time for passenger in passengers)
     print(f"All {len(passengers)} passengers delivered; the last one stepped out at tick {last_arrival}.")
     print("Rule check passed: served, capacity, direction, movement, records.")
     _print_summary(passengers)
     print(f"Wrote {positions_file} and {passengers_file}.")
     return 0
+
+
+def _settings(cars: int, floors: int, capacity: int, stop_time: int, scheduler: str) -> str:
+    """The settings written the way they are typed, such as "--cars 2  --floors 51 ..."."""
+    return f"--cars {cars}  --floors {floors}  --capacity {capacity}  --stop-time {stop_time}  --scheduler {scheduler}"
 
 
 def _print_summary(passengers: list[Passenger]) -> None:

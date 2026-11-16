@@ -68,10 +68,11 @@ def test_there_is_one_row_per_pattern_scheduler_and_seed():
     rows = compare(SMALL, num_people=30, num_seeds=3)
 
     assert len(rows) == len(PATTERNS) * len(SCHEDULERS) * 3
-    assert rows[0].keys() == {"pattern", "scheduler", "seed", "average", "p90", "max"}
+    assert rows[0].keys() == {"pattern", "scheduler", "seed", "total", "wait", "p90", "max"}
     for row in rows:
-        assert 0 <= row["average"] <= row["max"]
+        assert 0 <= row["wait"] <= row["max"]
         assert row["p90"] <= row["max"]
+        assert row["total"] > row["wait"]  # total is wait plus travel, and every trip is at least one floor
 
 
 def test_the_comparison_gives_the_same_numbers_every_time():
@@ -79,11 +80,11 @@ def test_the_comparison_gives_the_same_numbers_every_time():
 
 
 def test_the_difference_from_the_baseline_is_paired_seed_by_seed():
-    # Results written by hand for three seeds: the baseline waits 10, 12, 14 and the other scheduler 11, 15, 14.
+    # Results written by hand for three seeds: the baseline's total time is 10, 12, 14 and the other scheduler's 11, 15, 14.
     rows = []
-    for seed, (baseline_wait, other_wait) in enumerate([(10, 11), (12, 15), (14, 14)]):
-        rows.append({"pattern": "morning", "scheduler": BASELINE, "seed": seed, "average": baseline_wait})
-        rows.append({"pattern": "morning", "scheduler": "other", "seed": seed, "average": other_wait})
+    for seed, (baseline_total, other_total) in enumerate([(10, 11), (12, 15), (14, 14)]):
+        rows.append({"pattern": "morning", "scheduler": BASELINE, "seed": seed, "total": baseline_total})
+        rows.append({"pattern": "morning", "scheduler": "other", "seed": seed, "total": other_total})
 
     difference, error = difference_from_baseline(rows, "morning", "other")
 
@@ -94,15 +95,18 @@ def test_the_difference_from_the_baseline_is_paired_seed_by_seed():
 
 # The command.
 
-def test_the_command_prints_both_tables(capsys):
+def test_the_command_prints_its_tables(capsys):
     exit_code = main(["--cars", "2", "--floors", "8", "--capacity", "4", "--people", "30", "--seeds", "3"])
     printed = capsys.readouterr().out
 
     assert exit_code == 0
-    for word in list(PATTERNS) + list(SCHEDULERS):
+    for word in list(PATTERNS) + list(SCHEDULERS) + ["Total time in ticks", "Wait in ticks", "compared with"]:
         assert word in printed
     runs = len(PATTERNS) * len(SCHEDULERS) * 3  # patterns x schedulers x seeds
     assert f"All {runs} runs passed the rule check" in printed
+    # The settings of this run, then the defaults. The default number of people follows the cars: 75 for each.
+    assert "Settings in this run: --cars 2  --floors 8  --capacity 4  --stop-time 0  --people 30  --seeds 3" in printed
+    assert "Defaults:             --cars 4  --floors 20  --capacity 8  --stop-time 0  --people 150  --seeds 20" in printed
 
 
 def test_one_seed_is_refused_because_a_standard_error_needs_two():
@@ -118,7 +122,7 @@ def test_the_command_can_save_one_set_of_passengers_as_a_request_file(tmp_path, 
     exit_code = main(["--write-requests", "evening", str(out), "--people", "25", "--floors", "12"])
 
     assert exit_code == 0
-    assert "Wait in ticks" not in capsys.readouterr().out  # it saved the file and compared nothing
+    assert "Total time in ticks" not in capsys.readouterr().out  # it saved the file and compared nothing
     with open(out, newline="") as file:
         read_back, problems = read_requests(file, Config(num_floors=12))
     assert problems == []

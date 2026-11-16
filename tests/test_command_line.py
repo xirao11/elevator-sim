@@ -9,6 +9,8 @@ from elevator_sim.__main__ import main
 
 # The data folder sits next to the tests folder; this finds it wherever pytest is started from.
 SAMPLE = str(Path(__file__).parent.parent / "data" / "sample_requests.csv")
+# The two files that the README's first command writes, kept in the repo so they can be read without running anything.
+SAMPLE_OUTPUT = Path(__file__).parent.parent / "data" / "sample_output"
 
 
 def read_csv(path):
@@ -49,6 +51,14 @@ def test_the_statistics_are_printed_after_the_run(tmp_path, capsys):
     assert "Rule check passed" in printed  # every run is checked against the five rules
 
 
+def test_every_run_prints_its_settings_and_the_defaults(tmp_path, capsys):
+    main([SAMPLE, "--cars", "2", "--out", str(tmp_path)])  # only --cars is typed; the rest are defaults
+    printed = capsys.readouterr().out
+
+    assert "Settings in this run: --cars 2  --floors 51  --capacity 10  --stop-time 0  --scheduler least_combined_time" in printed
+    assert "Defaults:             --cars 1  --floors 51  --capacity 10  --stop-time 0  --scheduler least_combined_time" in printed
+
+
 def test_a_stop_time_of_1_adds_one_tick_for_every_stop_on_the_way(tmp_path):
     main([SAMPLE, "--stop-time", "1", "--out", str(tmp_path)])  # one car, the default
 
@@ -58,6 +68,30 @@ def test_a_stop_time_of_1_adds_one_tick_for_every_stop_on_the_way(tmp_path):
         ["0", "passenger2", "1", "37", "0", "0", "37", "0", "37", "37"],  # 36 floors and the stop at 1
         ["10", "passenger3", "20", "1", "0", "84", "104", "74", "20", "94"],  # the car is 3 stops late; then 19 floors and one stop
     ]
+
+
+def test_without_out_every_request_file_gets_its_own_folder(tmp_path, monkeypatch):
+    # monkeypatch is a pytest tool for temporary changes. chdir runs this test from the empty folder,
+    # as if `cd` had been typed, so "out" is made there and not in the project. pytest undoes it afterwards.
+    monkeypatch.chdir(tmp_path)
+    one_trip = tmp_path / "one_trip.csv"
+    one_trip.write_text("time,id,source,dest\n0,a,1,5\n")
+
+    main([SAMPLE])
+    main([str(one_trip)])  # a second request file
+
+    # Each folder is named after its request file, so the second run did not replace the first one's output.
+    assert len(read_csv(tmp_path / "out" / "sample_requests" / "passengers.csv")) == 1 + 3  # the header, then 3 passengers
+    assert len(read_csv(tmp_path / "out" / "one_trip" / "passengers.csv")) == 1 + 1
+
+
+def test_the_sample_output_in_the_repo_is_what_the_code_writes(tmp_path):
+    main([SAMPLE, "--cars", "2", "--out", str(tmp_path)])  # the README's first command
+
+    # If this fails, the code's result changed and data/sample_output is out of date.
+    # Write it again: python3 -m elevator_sim data/sample_requests.csv --cars 2 --out data/sample_output
+    for name in ["positions.csv", "passengers.csv"]:
+        assert read_csv(tmp_path / name) == read_csv(SAMPLE_OUTPUT / name)
 
 
 def test_a_file_with_a_bad_row_stops_and_writes_nothing(tmp_path, capsys):

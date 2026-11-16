@@ -6,7 +6,7 @@ A scenario is one traffic pattern of the day: morning, lunch or evening. The fil
 bottom in the order things happen. First the traffic: passengers who follow a pattern. Then the
 comparison: for each pattern and each seed it makes one set of passengers and runs every scheduler
 on that same set, so a difference in the results comes from the scheduler and not from luck. Then
-the two tables, and last the command.
+the three tables, and last the command.
 
 To watch one set of those passengers in the simulator itself, save it as a request file:
 
@@ -91,7 +91,9 @@ def compare(config: Config, num_people: int, num_seeds: int) -> list[dict]:
     """Run every scheduler on every pattern and seed. One row comes back per run, like a tidy table.
 
     A row looks like {"pattern": "morning", "scheduler": "nearest_car", "seed": 3,
-    "average": 27.1, "p90": 58, "max": 96}. The three numbers are that run's wait times in ticks.
+    "total": 36.9, "wait": 27.1, "p90": 58, "max": 96}. All four numbers are in ticks. `total` is
+    that run's average total time, wait plus travel, which is what the assignment asks to keep small.
+    `wait` is its average wait, and `p90` and `max` are its long waits.
     """
     rows = []
     for pattern in PATTERNS:
@@ -106,7 +108,8 @@ def compare(config: Config, num_people: int, num_seeds: int) -> list[dict]:
                 waits = [p.wait_time for p in passengers]
                 rows.append({
                     "pattern": pattern, "scheduler": name, "seed": seed,
-                    "average": mean(waits), "p90": percentile(waits, 90), "max": max(waits),
+                    "total": mean(p.total_time for p in passengers),
+                    "wait": mean(waits), "p90": percentile(waits, 90), "max": max(waits),
                 })
     return rows
 
@@ -117,28 +120,38 @@ def values(rows: list[dict], pattern: str, scheduler: str, measure: str) -> list
 
 
 def difference_from_baseline(rows: list[dict], pattern: str, scheduler: str) -> tuple[float, float]:
-    """How much longer this scheduler's average wait is than the baseline's: the mean over the seeds, and its standard error.
+    """How much longer this scheduler's average total time is than the baseline's: the mean over the seeds, and its standard error.
 
     The difference is paired, taken seed by seed. Both schedulers served the same passengers in each
     seed, so the luck of the draw cancels out and what is left is the effect of the scheduler.
     """
-    ours = values(rows, pattern, scheduler, "average")
-    baseline = values(rows, pattern, BASELINE, "average")
+    ours = values(rows, pattern, scheduler, "total")
+    baseline = values(rows, pattern, BASELINE, "total")
     differences = [a - b for a, b in zip(ours, baseline)]
     return mean(differences), stdev(differences) / sqrt(len(differences))
 
 
 def print_tables(rows: list[dict]) -> None:
-    """Two small tables: the wait times of every scheduler, then each one's difference from the baseline."""
+    """Three small tables: every scheduler's total time, its wait times, then its difference from the baseline."""
     # In an f-string, :>20 right-aligns in 20 characters, :22 left-aligns in 22, and :+.1f always shows the sign.
     header = f"{'':22}" + "".join(f"{pattern:>20}" for pattern in PATTERNS)
 
+    print("Total time in ticks, wait + travel: average, a mean over the seeds")
+    print(header)
+    for name in SCHEDULERS:
+        line = f"{name:22}"
+        for pattern in PATTERNS:
+            total = mean(values(rows, pattern, name, "total"))
+            line += f"{total:>20.1f}"
+        print(line)
+
+    print()
     print("Wait in ticks: average (p90 / max), each a mean over the seeds")
     print(header)
     for name in SCHEDULERS:
         line = f"{name:22}"
         for pattern in PATTERNS:
-            average = mean(values(rows, pattern, name, "average"))
+            average = mean(values(rows, pattern, name, "wait"))
             p90 = mean(values(rows, pattern, name, "p90"))
             longest = mean(values(rows, pattern, name, "max"))
             cell = f"{average:.1f} ({p90:.0f} / {longest:.0f})"
@@ -146,7 +159,7 @@ def print_tables(rows: list[dict]) -> None:
         print(line)
 
     print()
-    print(f"Average wait compared with {BASELINE}, ± standard error (minus means shorter waits)")
+    print(f"Average total time compared with {BASELINE}, ± standard error (minus means shorter)")
     print(header)
     for name in SCHEDULERS:
         if name == BASELINE:
@@ -157,6 +170,11 @@ def print_tables(rows: list[dict]) -> None:
             cell = f"{difference:+.1f} ± {error:.1f}"
             line += f"{cell:>20}"
         print(line)
+
+
+def settings(cars: int, floors: int, capacity: int, stop_time: int, people: int, seeds: int) -> str:
+    """The settings written the way they are typed, such as "--cars 4  --floors 20 ..."."""
+    return f"--cars {cars}  --floors {floors}  --capacity {capacity}  --stop-time {stop_time}  --people {people}  --seeds {seeds}"
 
 
 def main(argv=None) -> int:
@@ -175,7 +193,8 @@ def main(argv=None) -> int:
     # nargs=2 makes this flag take two words after it; metavar is what --help calls them.
     parser.add_argument(
         "--write-requests", nargs=2, metavar=("PATTERN", "FILE"),
-        help="compare nothing; save that pattern's first set of passengers (seed 0) as a request file",
+        # ", ".join(PATTERNS) writes the pattern names out as "morning, lunch, evening", read from the table at the top.
+        help=f"compare nothing; save PATTERN's first set of passengers (seed 0) as the request file FILE. PATTERN is one of: {', '.join(PATTERNS)}",
     )
     args = parser.parse_args(argv)
     if args.cars < 1:
@@ -204,16 +223,19 @@ def main(argv=None) -> int:
         write_requests(passengers, path)
         print(f"Wrote {len(passengers)} {pattern} requests to {path}.")
         print(
-            f"Run them with: python -m elevator_sim {path} "
+            f"Run them with: python3 -m elevator_sim {path} "
             f"--cars {args.cars} --floors {args.floors} --capacity {args.capacity}{stop_flag}"
         )
         return 0
 
     rows = compare(config, num_people, args.seeds)
 
-    stops = "" if args.stop_time == 0 else f" Every stop takes {args.stop_time} extra tick(s)."
-    print(f"{args.cars} cars, {args.floors} floors, capacity {args.capacity}. {num_people} people asking over {WINDOW} ticks.{stops}")
-    print(f"{args.seeds} seeds per pattern, the same passengers for every scheduler. All {len(rows)} runs passed the rule check.")
+    # Every setting of this run, then the value each one has when its flag is left out.
+    default_people = PEOPLE_PER_CAR * args.cars
+    print("Settings in this run: " + settings(args.cars, args.floors, args.capacity, args.stop_time, num_people, args.seeds))
+    print("Defaults:             " + settings(BUILDING.num_cars, BUILDING.num_floors, BUILDING.capacity, BUILDING.stop_time, default_people, NUM_SEEDS))
+    print(f"The people ask over {WINDOW} ticks, and a stop costs {args.stop_time} extra tick(s). Each seed is one set of passengers.")
+    print(f"Every scheduler gets the same sets. All {len(rows)} runs passed the rule check.")
     print()
     print_tables(rows)
     return 0
