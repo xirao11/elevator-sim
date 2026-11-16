@@ -6,10 +6,10 @@
 <title>Elevator dispatch simulation</title>
 <style>
 /* One file, no downloads: it opens with a double-click and works offline.
-   Five tabs. The first is the whole story in one screen: the idea and the result. The last is one small
-   example played tick by tick, for anyone who wants the mechanics.
-   Every number on the page is in the DATA, OTHERS and EXAMPLE blocks at the bottom, and all three were produced
-   by the simulator in this repository. */
+   Five tabs. The first is the whole story in one screen: the idea and the result. Then the detail, how the code
+   is built, one small example played tick by tick, and last how I know it is right and what I would build next.
+   Every number on the page was produced by the simulator in this repository: those in the charts and tables are
+   in the DATA, OTHERS and EXAMPLE blocks at the bottom. */
 :root {
   color-scheme: light;
   --plane: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
@@ -104,12 +104,44 @@ td:first-child { font-family: var(--font-data); font-size: 13px; }
 tr.best td { font-weight: 600; }
 tr.best td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 
-.points { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 8px; max-width: 76ch; }
-.points b { font-weight: 600; }
 pre { margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-family: var(--font-data); font-size: 13px; overflow-x: auto; }
 .foot { border-top: 1px solid var(--grid); padding-top: 12px; max-width: none; }  /* the footnote at the end of a tab */
-.todo { background: var(--surface); border: 1px dashed var(--axis); border-radius: 10px; padding: 16px; }
-.todo ul { margin: 8px 0 0; padding-left: 1.2em; color: var(--ink-2); }
+/* Tables of words (Checks and limits, System design): they wrap, and their first column is text, not a name in code */
+table.words { min-width: 600px; }
+.words th, .words td { text-align: left; white-space: normal; vertical-align: top; padding: 9px 12px; }
+.words td { font-size: 14px; color: var(--ink-2); }
+.words td:first-child { font-family: var(--font-text); font-size: 14px; font-weight: 600; color: var(--ink); }
+.words code { font-size: 12.5px; color: var(--ink); }
+
+/* Stop time on Results: one small line chart per pattern. Grey for the other three, the accent on top. */
+svg.lc { display: block; width: 100%; max-width: 360px; height: auto; }
+.lc-line { fill: none; stroke: var(--context); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.lc-line.best { stroke: var(--accent); }
+.lc-dot { fill: var(--context); stroke: var(--surface); stroke-width: 2; }
+.lc-dot.best { fill: var(--accent); }
+.lc-base { stroke: var(--axis); stroke-width: 1; }
+.lc-leader { fill: none; stroke: var(--axis); stroke-width: 1; }
+.lc-name { font-family: var(--font-data); font-size: 11px; fill: var(--ink-2); }
+.lc-name.best { fill: var(--ink); font-weight: 600; }
+.lc-axis { font-family: var(--font-text); font-size: 11px; fill: var(--muted); }
+.lc-hit { fill: transparent; cursor: crosshair; }
+.lc:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The flow chart on System design. Drawn by hand, so the page needs no download. The scheduler is outlined in
+   the accent colour; the estimate, which only the last two schedulers use, is dashed. On a phone it scrolls sideways. */
+svg.fc { display: block; width: 100%; min-width: 660px; height: auto; }
+.fc-box { fill: var(--surface); stroke: var(--axis); stroke-width: 1; }
+.fc-box.pick { stroke: var(--accent); stroke-width: 2; }
+.fc-box.est { stroke-dasharray: 5 4; }
+.fc-line { fill: none; stroke: var(--ink-2); stroke-width: 1.5; }
+.fc-dash { stroke-dasharray: 5 4; }
+.fc-head { fill: var(--ink-2); }
+.fc-t { font-family: var(--font-text); font-size: 14px; font-weight: 600; fill: var(--ink); }
+.fc-d { font-family: var(--font-text); font-size: 12.5px; fill: var(--ink-2); }
+.fc-f { font-family: var(--font-data); font-size: 12px; fill: var(--muted); }
+.fc-l { font-family: var(--font-text); font-size: 12px; fill: var(--ink-2); }
+.fc-accent { fill: var(--accent); font-weight: 600; }
+.fc-halo { paint-order: stroke; stroke: var(--plane); stroke-width: 4px; stroke-linejoin: round; }
 
 /* The example. The requests come first. Then the current tick is the heading; Back, Next and Reset drive four
    matching panels, one per scheduler: the building at that tick, what the scheduler counts under it, then the
@@ -196,9 +228,9 @@ pre { margin: 0; background: var(--surface); border: 1px solid var(--border); bo
   <nav class="tabs" role="tablist" aria-label="Sections">
     <button type="button" role="tab" id="tab-overview" data-panel="overview">Overview</button>
     <button type="button" role="tab" id="tab-results" data-panel="results">Results</button>
-    <button type="button" role="tab" id="tab-checks" data-panel="checks">Checks and limits</button>
     <button type="button" role="tab" id="tab-design" data-panel="design">System design</button>
     <button type="button" role="tab" id="tab-example" data-panel="example">Example, tick by tick</button>
+    <button type="button" role="tab" id="tab-checks" data-panel="checks">Checks and limits</button>
   </nav>
 
   <!-- 1. Overview: the idea as one table, then the result as one chart. Nothing else. -->
@@ -223,70 +255,113 @@ pre { margin: 0; background: var(--surface); border: 1px solid var(--border); bo
     <p class="note setup foot"></p>
   </section>
 
-  <!-- 2. Results: the detail behind the overview -->
+  <!-- 2. Results. Each heading is a finding and the chart under it is the evidence. All the statistics come last. -->
   <section class="panel" role="tabpanel" id="panel-results" aria-labelledby="tab-results">
     <div class="block">
-      <h2>Minimum, average and maximum</h2>
-      <p class="sub">The statistics the assignment asks for. Each cell is min / average / max, in ticks.</p>
+      <h2>The unluckiest passenger waits far less</h2>
+      <p class="sub" id="longest-sub"></p>
+      <div class="cards" id="longest"></div>
+      <div class="key"><span><i class="k-best"></i>least_combined_time</span><span><i class="k-rest"></i>the other three</span><span>Longest wait for a car, in ticks, averaged over the 20 sets of passengers. Shorter is better.</span></div>
+    </div>
+
+    <div class="block">
+      <h2>When every stop costs time, it stays best and slows down least</h2>
+      <p class="sub" id="stop-sub"></p>
+      <div class="cards" id="stop-lines"></div>
+      <div class="key"><span><i class="k-best"></i>least_combined_time</span><span><i class="k-rest"></i>the other three</span><span>Average trip in ticks, wait + travel, at stop time 0, 1 and 2. Shorter is better.</span></div>
+    </div>
+
+    <div class="block">
+      <h2>All the statistics</h2>
+      <p class="sub">What the assignment asks for, in ticks. Each min and max is averaged over the 20 sets of passengers. least_combined_time has the lowest average and the lowest max, of both wait and total time, in every pattern.</p>
       <div class="scroll"><table id="t-wait"></table></div>
       <div class="scroll"><table id="t-total"></table></div>
-    </div>
-
-    <div class="block">
-      <h2>The longest wait</h2>
-      <p class="sub">The average is efficiency. The longest wait is fairness: the unluckiest passenger.</p>
-      <div class="cards" id="longest"></div>
-      <div class="key"><span><i class="k-best"></i>least_combined_time</span><span><i class="k-rest"></i>the other three</span><span>Ticks the unluckiest passenger waits for a car. Shorter is better.</span></div>
-    </div>
-
-    <div class="block">
-      <h2>When every stop costs time</h2>
-      <p class="sub">With a stop time of N, a car stays N more ticks whenever anyone steps in or out. Average total time at stop time 0 → 1 → 2.</p>
       <div class="scroll"><table id="t-stop"></table></div>
-    </div>
-
-    <div class="block">
-      <h2>What the numbers say</h2>
-      <ul class="points" id="points"></ul>
-    </div>
-
-    <div class="block">
-      <h2>Run it yourself</h2>
-      <pre>python3 -m elevator_sim.scenarios                 # the comparison above, stops free
-python3 -m elevator_sim.scenarios --stop-time 1   # the same when every stop costs one tick
-python3 -m elevator_sim data/sample_requests.csv --cars 2   # one request file, one scheduler</pre>
       <p class="note">Every number on this page was produced by the simulator in this repository.</p>
     </div>
     <p class="note setup foot"></p>
   </section>
 
-  <!-- 3. Checks and limits -->
-  <section class="panel" role="tabpanel" id="panel-checks" aria-labelledby="tab-checks">
-    <div class="todo">
-      <h2>To come</h2>
-      <ul>
-        <li>How I know the simulation is right: hand-traced examples, the rule checker, 300 random buildings per scheduler.</li>
-        <li>How I know no scheduler uses a request that has not been made yet.</li>
-        <li>Where the best scheduler loses: three passengers and a spare car.</li>
-        <li>What I would build next, and how I used AI.</li>
-      </ul>
-    </div>
-  </section>
-
-  <!-- 4. System design -->
+  <!-- 3. System design: a reference for walking through the code -->
   <section class="panel" role="tabpanel" id="panel-design" aria-labelledby="tab-design">
-    <div class="todo">
-      <h2>To come</h2>
-      <ul>
-        <li>The key idea in plain words, for someone who does not write code.</li>
-        <li>The Python files, and what each function in them does.</li>
-        <li>The design decisions, and what each one costs.</li>
-        <li>Where to change what.</li>
-      </ul>
+    <div class="block">
+      <h2>How a run flows</h2>
+      <p class="sub">Four steps, repeated every tick until everyone has arrived. Each box names the file that does it.</p>
+      <div class="scroll">
+        <svg class="fc" viewBox="0 0 920 540" role="img" aria-label="Flow chart. Each tick: 1, new requests appear and the scheduler gives each one a car. 2, each car serves its floor. 3, every car's floor is logged. If everyone has arrived, the run ends: the five rules are checked, then the min, max and average are computed. If not, 4, every car moves one floor, and the next tick starts at step 1. The scheduler is the only part that changes between the four schedulers. The last two schedulers ask each car for an estimate, which runs a copy of the car through steps 2 and 4.">
+          <defs>
+            <marker id="fc-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="fc-head"/></marker>
+          </defs>
+
+          <!-- The loop, on the left: one pass is one tick -->
+          <rect class="fc-box" x="60" y="36" width="340" height="64" rx="8"/>
+          <text class="fc-t" x="76" y="58">1  New requests appear</text>
+          <text class="fc-d" x="76" y="75">the scheduler gives each one a car</text>
+          <text class="fc-f" x="76" y="92">simulation.py</text>
+          <line class="fc-line" x1="230" y1="100" x2="230" y2="142" marker-end="url(#fc-arrow)"/>
+
+          <rect class="fc-box" x="60" y="144" width="340" height="64" rx="8"/>
+          <text class="fc-t" x="76" y="166">2  Each car serves its floor</text>
+          <text class="fc-d" x="76" y="183">people step out, it picks a direction, people step in</text>
+          <text class="fc-f" x="76" y="200">car.py · serve_floor</text>
+          <line class="fc-line" x1="230" y1="208" x2="230" y2="250" marker-end="url(#fc-arrow)"/>
+
+          <rect class="fc-box" x="60" y="252" width="340" height="64" rx="8"/>
+          <text class="fc-t" x="76" y="274">3  Log every car's floor</text>
+          <text class="fc-d" x="76" y="291">one row of positions.csv</text>
+          <text class="fc-f" x="76" y="308">simulation.py</text>
+          <line class="fc-line" x1="230" y1="316" x2="230" y2="342" marker-end="url(#fc-arrow)"/>
+
+          <polygon class="fc-box" points="230,344 320,378 230,412 140,378"/>
+          <text class="fc-t" x="230" y="383" text-anchor="middle">Everyone arrived?</text>
+          <line class="fc-line" x1="230" y1="412" x2="230" y2="450" marker-end="url(#fc-arrow)"/>
+          <text class="fc-l" x="240" y="436">no</text>
+
+          <rect class="fc-box" x="60" y="452" width="340" height="64" rx="8"/>
+          <text class="fc-t" x="76" y="474">4  Every car moves one floor</text>
+          <text class="fc-d" x="76" y="491">then the clock moves on to the next tick</text>
+          <text class="fc-f" x="76" y="508">car.py · move</text>
+
+          <path class="fc-line" d="M60,484 H30 V68 H56" marker-end="url(#fc-arrow)"/>
+          <text class="fc-l fc-halo" x="26" y="276" text-anchor="middle" transform="rotate(-90 26 276)">next tick</text>
+
+          <!-- The scheduler, on the right: the only part that changes between the four -->
+          <text class="fc-l fc-accent" x="530" y="22">Only this part changes between the four schedulers</text>
+          <rect class="fc-box pick" x="530" y="32" width="370" height="88" rx="8"/>
+          <text class="fc-t" x="546" y="54">The scheduler: which car?</text>
+          <text class="fc-d" x="546" y="72">in: one passenger, and the cars as they are now</text>
+          <text class="fc-d" x="546" y="89">out: one car, final</text>
+          <text class="fc-f" x="546" y="108">schedulers.py</text>
+          <line class="fc-line" x1="400" y1="68" x2="526" y2="68" marker-end="url(#fc-arrow)"/>
+          <text class="fc-l" x="463" y="60" text-anchor="middle">asks</text>
+
+          <line class="fc-line fc-dash" x1="715" y1="120" x2="715" y2="166" marker-end="url(#fc-arrow)"/>
+          <text class="fc-l" x="725" y="148">the last two ask every car</text>
+          <rect class="fc-box est" x="530" y="168" width="370" height="88" rx="8"/>
+          <text class="fc-t" x="546" y="190">Each car's estimate</text>
+          <text class="fc-d" x="546" y="208">a copy of the car repeats steps 2 and 4</text>
+          <text class="fc-d" x="546" y="225">until everyone it carries has arrived</text>
+          <text class="fc-f" x="546" y="244">car.py · estimate_arrivals</text>
+
+          <!-- When everyone has arrived -->
+          <line class="fc-line" x1="320" y1="378" x2="526" y2="378" marker-end="url(#fc-arrow)"/>
+          <text class="fc-l" x="423" y="370" text-anchor="middle">yes: the run ends</text>
+          <rect class="fc-box" x="530" y="346" width="370" height="64" rx="8"/>
+          <text class="fc-t" x="546" y="368">Check the five rules</text>
+          <text class="fc-d" x="546" y="385">a broken rule stops it before any result</text>
+          <text class="fc-f" x="546" y="402">rule_checker.py</text>
+          <line class="fc-line" x1="715" y1="410" x2="715" y2="450" marker-end="url(#fc-arrow)"/>
+          <rect class="fc-box" x="530" y="452" width="370" height="64" rx="8"/>
+          <text class="fc-t" x="546" y="474">Min, max and average</text>
+          <text class="fc-d" x="546" y="491">of wait, travel and total time</text>
+          <text class="fc-f" x="546" y="508">metrics.py</text>
+        </svg>
+      </div>
     </div>
+
   </section>
 
-  <!-- 5. Example, tick by tick: the mechanics, for anyone who asks -->
+  <!-- 4. Example, tick by tick: the mechanics, for anyone who asks -->
   <section class="panel" role="tabpanel" id="panel-example" aria-labelledby="tab-example">
     <div class="block">
       <h2>Two cars, two passengers, four schedulers</h2>
@@ -303,6 +378,37 @@ python3 -m elevator_sim data/sample_requests.csv --cars 2   # one request file, 
       </div>
       <div class="fork" id="stage"></div>
       <p class="note">All four runs were produced by the simulator's own code. The page only draws them.</p>
+    </div>
+  </section>
+
+  <!-- 5. Checks and limits, last: how I know it is right, and what I would build next -->
+  <section class="panel" role="tabpanel" id="panel-checks" aria-labelledby="tab-checks">
+    <div class="block">
+      <h2>How I know it is right</h2>
+      <p class="sub">85 tests, of four kinds. Each kind catches what the others miss.</p>
+      <div class="scroll"><table class="words">
+        <thead><tr><th>Check</th><th>What it shows</th><th>What it would miss</th></tr></thead>
+        <tbody>
+          <tr><td>Hand-traced examples</td><td>Exact numbers on small cases, traced on paper first.</td><td>Cases nobody thought of.</td></tr>
+          <tr><td>The rule checker</td><td>Five rules on every finished run: everyone served, capacity, direction, legal movement, records that match the log. It shares no code with the simulation.</td><td>A run that keeps every rule but has wrong times.</td></tr>
+          <tr><td>300 random buildings per scheduler</td><td>1–10 cars, 2–50 floors, room for 1–10, stop time 0–2. Every run must pass the rule checker.</td><td>Whether the choices are good. That is measured on Results.</td></tr>
+          <tr><td>No use of later requests</td><td>By design, a scheduler is given only the passenger asking now and the cars as they are now. By test, a request added halfway changes nothing before it.</td><td>Whether the choices are good.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="block">
+      <h2>Limits, and what I would build next</h2>
+      <div class="scroll"><table class="words">
+        <thead><tr><th>Limit</th><th>What I would build</th><th>Where the code changes</th></tr></thead>
+        <tbody>
+          <tr><td>A choice of car is final.</td><td>Move a waiting passenger to a better car before they board.</td><td><code>simulation.py</code>: offer the people still waiting to the scheduler again each tick. <code>car.py</code>: a way to take someone off a car's waiting list.</td></tr>
+          <tr><td>An idle car stays where it stopped.</td><td>Park idle cars where requests are likely, such as the lobby in the morning.</td><td><code>car.py</code>: <code>_choose_direction</code> heads a car with no work to its parking floor. The floor is a setting in <code>config.py</code>.</td></tr>
+          <tr><td>Every car serves every floor.</td><td>Express cars and zones. They pay off when stops cost time.</td><td><code>config.py</code>: the floors each car serves. <code>schedulers.py</code>: <code>available()</code> offers only cars that serve both floors. <code>rule_checker.py</code>: one more rule.</td></tr>
+          <tr><td>An average can hide one long wait.</td><td>A fairness setting: a long delay costs more than in proportion.</td><td><code>schedulers.py</code>: <code>combined_time</code> counts each delay more than in proportion, for example squared.</td></tr>
+          <tr><td>Each comparison is one building.</td><td>Search for the mix of cars, car size and floors that suits a given traffic.</td><td><code>scenarios.py</code>: a loop over <code>compare()</code> with one <code>Config</code> per building, as in the 90-building check.</td></tr>
+        </tbody>
+      </table></div>
     </div>
   </section>
 </div>
@@ -462,31 +568,114 @@ table("t-stop", "Average total time", "stop time 0 → 1 → 2", function (s, p)
   return ["0", "1", "2"].map(function (stop) { return one(DATA.stop[stop][p][s].total_avg); }).join(" → ");
 });
 
-// ---- What the numbers say. The numbers inside the sentences are read from the data.
-(function points() {
-  const e = free.evening, m = free.morning;
-  const lead = function (stop) {
-    return DATA.patterns.map(function (p) {
-      const c = DATA.stop[stop][p];
-      return one(c.least_newcomer_time.total_avg - c[BEST].total_avg);
+// ---- Results: the sentence under each heading. Its numbers are read from the data.
+(function findings() {
+  const others = DATA.schedulers.filter(function (s) { return s !== BEST; });
+  const low = function (list) { return Math.min.apply(null, list); };
+  const high = function (list) { return Math.max.apply(null, list); };
+  const e = free.evening;
+  const longest = others.map(function (s) { return e[s].wait_max; });
+  $("longest-sub").textContent = "In the evening its longest wait is " + whole(e[BEST].wait_max) + " ticks, against " + whole(low(longest)) +
+    " to " + whole(high(longest)) + " for the other three. The average measures efficiency; the longest wait measures fairness.";
+  const rise = function (s) { return DATA.stop["2"].evening[s].total_avg - DATA.stop["0"].evening[s].total_avg; };
+  const rises = others.map(rise);
+  $("stop-sub").textContent = "With a stop time of N, a car stays N more ticks whenever anyone steps in or out. From stop time 0 to 2, " +
+    "the average evening trip grows by " + one(rise(BEST)) + " ticks with " + BEST + ", and by " + one(low(rises)) + " to " +
+    one(high(rises)) + " with the other three.";
+})();
+
+// ---- Stop time: one small line chart per pattern, all three on the same scale. Stop time 0, 1 and 2 across,
+// average trip up. Each line is named at its right end. Hovering, or focusing a chart and pressing ← and →,
+// shows all four values at one stop time.
+(function stopLines() {
+  const NS = "http://www.w3.org/2000/svg", STOPS = ["0", "1", "2"];
+  const W = 300, H = 204, L = 30, R = 142, T = 10, B = 168;  // the plot runs from x = L to W - R, and from y = T down to the baseline B
+  const X = function (k) { return L + k * (W - R - L) / (STOPS.length - 1); };
+  let top = 0;
+  STOPS.forEach(function (st) {
+    DATA.patterns.forEach(function (p) { DATA.schedulers.forEach(function (s) { top = Math.max(top, DATA.stop[st][p][s].total_avg); }); });
+  });
+  top = Math.ceil(top / 25) * 25;  // the highest value, rounded up to a gridline: 89.2 becomes 100
+  const Y = function (v) { return B - v / top * (B - T); };
+  function el(name, attrs, text) {
+    const node = document.createElementNS(NS, name);
+    Object.keys(attrs).forEach(function (key) { node.setAttribute(key, attrs[key]); });
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+  // The recommended line is drawn last, so it sits on top.
+  const order = DATA.schedulers.filter(function (s) { return s !== BEST; }).concat([BEST]);
+
+  DATA.patterns.forEach(function (p) {
+    const box = card(p);
+    const value = function (s, k) { return DATA.stop[STOPS[k]][p][s].total_avg; };
+    const said = DATA.schedulers.map(function (s) {
+      return s + " " + STOPS.map(function (st, k) { return one(value(s, k)); }).join(", ");
+    }).join("; ");
+    const svg = el("svg", { viewBox: "0 0 " + W + " " + H, class: "lc", role: "img", tabindex: "0",
+      "aria-label": "Average trip in the " + p + " at stop time 0, 1 and 2: " + said + "." });
+
+    for (let v = 0; v <= top; v += 25) {
+      svg.appendChild(el("line", { x1: L, x2: W - R, y1: Y(v), y2: Y(v), class: v === 0 ? "lc-base" : "x-grid" }));
+      svg.appendChild(el("text", { x: L - 6, y: Y(v) + 4, "text-anchor": "end", class: "x-floor" }, v));
+    }
+    STOPS.forEach(function (st, k) { svg.appendChild(el("text", { x: X(k), y: B + 16, "text-anchor": "middle", class: "x-floor" }, st)); });
+    svg.appendChild(el("text", { x: (L + W - R) / 2, y: B + 32, "text-anchor": "middle", class: "lc-axis" }, "stop time"));
+    const guide = el("line", { x1: 0, x2: 0, y1: T, y2: B, class: "x-guide", visibility: "hidden" });
+    svg.appendChild(guide);
+
+    order.forEach(function (s) {
+      const best = s === BEST ? " best" : "";
+      svg.appendChild(el("polyline", { points: STOPS.map(function (st, k) { return X(k) + "," + Y(value(s, k)); }).join(" "), class: "lc-line" + best }));
+      STOPS.forEach(function (st, k) { svg.appendChild(el("circle", { cx: X(k), cy: Y(value(s, k)), r: 4, class: "lc-dot" + best })); });
     });
-  };
-  const three = function (list) { return list[0] + ", " + list[1] + " and " + list[2]; };
-  const list = [
-    ["Distance is not time.", " nearest_car gives everyone at the lobby the same car, and that car fills up. In the morning it averages " +
-      one(m.nearest_car.total_avg) + " ticks against " + one(m.round_robin.total_avg) + " for round_robin. With roomier cars it wins."],
-    ["An estimate in ticks beats both simple rules.", " least_newcomer_time knows which way the car is heading, what it has to do first, and whether it will have room."],
-    ["Counting the other passengers helps the unluckiest one most.", " The longest evening wait falls from " +
-      whole(e.least_newcomer_time.wait_max) + " to " + whole(e[BEST].wait_max) + ". A newcomer no longer takes the place of someone waiting further along."],
-    ["A stop time keeps the order and widens the lead.", " least_combined_time beats least_newcomer_time by " + three(lead("0")) +
-      " ticks when stops are free (morning, lunch, evening), and by " + three(lead("2")) + " at stop time 2. Part of that growth is the building getting overloaded."],
-    ["It can still lose.", " It knows only who has asked so far, and a choice of car is final. The smallest case is under Checks and limits."]
-  ];
-  list.forEach(function (item) {
-    const li = tag("li", "");
-    li.appendChild(tag("b", "", item[0]));
-    li.appendChild(document.createTextNode(item[1]));
-    $("points").appendChild(li);
+
+    // Names at the right end, pushed apart so they never overlap. A short leader joins a moved name to its line.
+    const names = DATA.schedulers.map(function (s) { return { s: s, y: Y(value(s, STOPS.length - 1)) }; });
+    names.sort(function (a, b) { return a.y - b.y; });
+    names.forEach(function (n, i) { n.at = i === 0 ? n.y : Math.max(n.y, names[i - 1].at + 13); });
+    const over = names[names.length - 1].at - B;
+    if (over > 0) names.forEach(function (n) { n.at -= over; });
+    const end = X(STOPS.length - 1);
+    names.forEach(function (n) {
+      if (Math.abs(n.at - n.y) > 1) svg.appendChild(el("polyline", { points: (end + 6) + "," + n.y + " " + (end + 12) + "," + n.at, class: "lc-leader" }));
+      svg.appendChild(el("text", { x: end + 14, y: n.at + 4, class: "lc-name" + (n.s === BEST ? " best" : "") }, n.s));
+    });
+
+    // The hover layer: a guide line at the nearest stop time, and all four values in the readout.
+    const hit = el("rect", { x: L - 16, y: 0, width: W - R - L + 32, height: B + 8, class: "lc-hit" });
+    svg.appendChild(hit);
+    let at = null;
+    function show(k, x, y) {
+      at = k;
+      guide.setAttribute("x1", X(k)); guide.setAttribute("x2", X(k)); guide.setAttribute("visibility", "visible");
+      tip.replaceChildren(tag("b", "", "Stop time " + STOPS[k] + ", " + p));
+      DATA.schedulers.slice().sort(function (a, b) { return value(a, k) - value(b, k); }).forEach(function (s) {
+        tip.appendChild(tag("span", "", s + ": " + one(value(s, k)) + " ticks"));
+      });
+      tip.hidden = false;
+      tip.style.left = Math.min(x + 12, window.innerWidth - tip.offsetWidth - 8) + "px";
+      tip.style.top = Math.max(8, y - tip.offsetHeight - 12) + "px";
+    }
+    function hide() { at = null; guide.setAttribute("visibility", "hidden"); tip.hidden = true; }
+    hit.addEventListener("pointermove", function (event) {
+      const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(svg.getScreenCTM().inverse());
+      const k = Math.max(0, Math.min(STOPS.length - 1, Math.round((point.x - L) / (X(1) - X(0)))));
+      show(k, event.clientX, event.clientY);
+    });
+    hit.addEventListener("pointerleave", hide);
+    function showKey(k) { const r = svg.getBoundingClientRect(); show(k, r.left + r.width * X(k) / W, r.top + 24); }
+    svg.addEventListener("focus", function () { showKey(0); });
+    svg.addEventListener("blur", hide);
+    svg.addEventListener("keydown", function (event) {
+      const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+      if (step === 0 || at === null) return;
+      event.preventDefault();
+      showKey(Math.max(0, Math.min(STOPS.length - 1, at + step)));
+    });
+
+    box.appendChild(svg);
+    $("stop-lines").appendChild(box);
   });
 })();
 
@@ -736,7 +925,7 @@ const EXAMPLE = {"floors":7,"trips":[["Pat",5,1,0],["Ann",3,7,1]],"runs":{"round
   go(0);
 })();
 
-// ---- Tabs. The address ends in #overview, #results, #checks, #design or #example, so a tab can be reopened or linked.
+// ---- Tabs. The address ends in #overview, #results, #design, #example or #checks, so a tab can be reopened or linked.
 // A panel's id is "panel-" plus that name, not the name itself: otherwise the browser would scroll down to the
 // panel when the page opens, and the title and the tabs would be off the screen.
 (function tabs() {

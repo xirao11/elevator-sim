@@ -85,7 +85,7 @@ Against `round_robin`, paired set by set, `least_combined_time` is shorter by 7.
 - **Distance is not time.** `nearest_car` loses to `round_robin` in the morning and the evening. It gives everyone at the lobby the same car, and that car fills up. The objective is time, and an estimate in ticks measures it directly, so both estimate schedulers beat both simple rules in every pattern.
 - **Counting the other passengers helps the unluckiest one most.** The average is efficiency and the longest wait is fairness. `least_newcomer_time` lets a newcomer take the place of someone waiting further along; `least_combined_time` counts that as a long delay to that person.
 - **When every stop costs time, the order holds.** With `--stop-time 2` a car stays 2 more ticks whenever anyone steps in or out. `least_combined_time` then averages 70.8, 32.6 and 42.5 ticks, against 86.4, 53.0 and 80.8 for `round_robin`.
-- **It holds in other buildings.** Across 90 buildings (2 to 8 cars, 10 to 40 floors, room for 4 to 16, stop time 0 and 1) `least_combined_time` has the shortest average total time in 262 of 270 cases. In the other 8, all morning traffic, `least_newcomer_time` leads by 1 tick or less, within two standard errors.
+- **It holds in other buildings.** Across 90 buildings (2 to 8 cars, 10 to 40 floors, room for 4 to 16, stop time 0 and 1) `least_combined_time` has the shortest average total time in 262 of 270 cases. In the other 8, all morning traffic, `least_newcomer_time` leads by about 1 tick or less, within two standard errors.
 
 ## Testing
 
